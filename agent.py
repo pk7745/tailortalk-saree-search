@@ -1,23 +1,10 @@
 """
-The conversational agent.
+The conversational agent for TailorTalk Saree Visual Search.
 
-Design: the LLM's ONLY job is (a) decide whether the user is asking for a
-visual similarity search vs. just chatting, and (b) call the search tool
-with a clean schema, and (c) narrate the results nicely. It never sees raw
-image bytes -- the currently-uploaded image lives server-side in Streamlit
-session state, and the tool is bound to it per-turn via a closure. This
-mirrors how real production agents handle attachments (reference by id/
-context, not by stuffing binary data through function-calling args) and
-keeps the tool's input schema clean and LLM-friendly.
-
-Tool schema
------------
-Input:  { top_k: int (1-10, default 5) }
-Output: list of {name, price, image_url, product_link, score}
-
-Swappable LLM: this file only touches Gemini. To use Groq or OpenAI
-instead, replace `_build_llm()` -- everything else (tool, prompt, executor)
-is provider-agnostic LangChain.
+Equipped with:
+1. Multi-modal similarity search (FAISS + CLIP + Color Histogram)
+2. Fine-grained multi-attribute filtering (Colors, Fabrics, Patterns, Price, Keywords)
+3. Direct catalogue discovery & querying
 """
 from __future__ import annotations
 
@@ -30,28 +17,27 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from PIL import Image
 
-from search_tool import search_similar_sarees
+from search_tool import search_sarees, search_similar_sarees
 import config
 
-SYSTEM_PROMPT = """You are TailorTalk, a friendly shopping assistant for a saree \
-catalogue. You specialize in ONE thing: finding visually similar sarees when a \
-user shares/uploads an image and asks to find similar items, matches, \
-alternatives, or "more like this".
+SYSTEM_PROMPT = """You are TailorTalk's expert AI Saree Stylist & Luxury Catalogue Consultant. \
+You provide accurate visual similarity search, fine-grained attribute filtering (color, fabric, pattern, price), \
+and authentic styling advice across a curated catalogue of 1,070 authentic sarees.
 
-Rules:
-- If the user has uploaded an image AND is asking (directly or implicitly) to \
-find similar sarees, matches, or alternatives -- call the find_similar_sarees \
-tool. Default top_k=5 unless the user asks for a specific number (max 10).
-- If the user uploaded an image but is just asking a general question about it \
-(e.g. "what color is this"), you may still offer to search for similar ones, \
-but don't call the tool unless they want a search.
-- If there's no image uploaded yet and the user wants a similarity search, ask \
-them to upload one or paste an image link.
-- After the tool returns results, do NOT re-list every field in prose (the UI \
-already shows an image grid). Just give a short, natural one- or two-sentence \
-summary of what you found (e.g. common fabric/colour theme across the matches).
-- Stay in character as a saree shopping assistant; for unrelated requests, \
-politely redirect.
+Key Rules & Behaviors:
+1. Extract & Apply All Filters Accurately:
+   - When the user asks for colors (e.g. "show me only pink colour", "blue sarees", "green with gold"), pass `color` to the search tool.
+   - When the user asks for fabrics (e.g. "Banarasi", "Organza", "Ajrakh", "Pashmina", "Linen", "Satin", "Tussar", "Munga Crape", "Silk", "Cotton"), pass `fabric`.
+   - When the user specifies budget (e.g. "under 3000", "below 5000"), pass `max_price` and/or `min_price`.
+   - When the user asks for patterns/work (e.g. "zari border", "lotus print", "madhubani", "checks", "applique work"), pass `pattern`.
+   - Respect user requests for count (e.g. "show me 8 instead") via `top_k`.
+2. Exact Truthfulness & Grounding:
+   - Only speak to items and attributes returned by the search tool. Never invent false products or fake prices.
+   - Provide a natural, polished 1-2 sentence stylist summary highlighting the matched colors, fabric weave, and craftwork.
+3. Conversational Context:
+   - When an image is active in session, searching seamlessly blends visual similarity with any requested color/fabric/budget filters.
+   - If no image is uploaded and user asks for sarees by description, search the catalogue directly with the tool.
+   - For general chit-chat (e.g. "hi", "who are you"), respond courteously in character as TailorTalk's saree shopping assistant without invoking the tool.
 """
 
 
@@ -59,40 +45,86 @@ class FindSimilarInput(BaseModel):
     top_k: int = Field(
         default=config.DEFAULT_TOP_K,
         ge=1,
-        le=config.MAX_TOP_K,
-        description="How many similar sarees to return, 1-10.",
+        le=20,
+        description="How many sarees to return (1-20).",
+    )
+    color: Optional[str] = Field(
+        default=None,
+        description="Filter by color (e.g. 'pink', 'navy blue', 'green', 'yellow', 'red', 'black', 'white', 'maroon', 'purple', etc.).",
+    )
+    fabric: Optional[str] = Field(
+        default=None,
+        description="Filter by fabric (e.g. 'banarasi', 'organza', 'ajrakh', 'pashmina', 'linen', 'satin', 'tussar', 'munga crape', 'silk', 'cotton', etc.).",
+    )
+    pattern: Optional[str] = Field(
+        default=None,
+        description="Filter by pattern or work (e.g. 'zari border', 'lotus print', 'madhubani', 'applique work', 'checks', 'printed', etc.).",
+    )
+    max_price: Optional[float] = Field(
+        default=None,
+        description="Maximum price budget in INR (e.g. 3000, 5000).",
+    )
+    min_price: Optional[float] = Field(
+        default=None,
+        description="Minimum price in INR.",
+    )
+    keyword: Optional[str] = Field(
+        default=None,
+        description="Specific style or title keyword.",
     )
 
 
 def _make_search_tool(current_image: Optional[Image.Image], on_results):
     """
-    Build a StructuredTool bound to whichever image is currently active in
-    the Streamlit session. `on_results` is a callback the app uses to grab
-    the raw result list for rendering the image grid (the LLM only gets a
-    compact text summary back, keeping token usage sane).
+    Build a StructuredTool bound to the active session image and result callback.
     """
 
-    def _run(top_k: int = config.DEFAULT_TOP_K) -> str:
-        if current_image is None:
-            return "ERROR: no image is currently uploaded. Ask the user to upload one."
-        results = search_similar_sarees(current_image, top_k=top_k)
+    def _run(
+        top_k: int = config.DEFAULT_TOP_K,
+        color: Optional[str] = None,
+        fabric: Optional[str] = None,
+        pattern: Optional[str] = None,
+        max_price: Optional[float] = None,
+        min_price: Optional[float] = None,
+        keyword: Optional[str] = None,
+    ) -> str:
+        results = search_sarees(
+            query_image=current_image,
+            color=color,
+            fabric=fabric,
+            pattern=pattern,
+            min_price=min_price,
+            max_price=max_price,
+            keyword=keyword,
+            top_k=top_k,
+        )
         on_results(results)
         if not results:
-            return "No similar sarees were found."
+            active_filters = []
+            if color:
+                active_filters.append(f"color='{color}'")
+            if fabric:
+                active_filters.append(f"fabric='{fabric}'")
+            if max_price:
+                active_filters.append(f"max_price=₹{max_price}")
+            filter_str = ", ".join(active_filters) if active_filters else "requested criteria"
+            return f"No sarees found matching {filter_str}. Try broadening your search filters."
+
         lines = [
-            f"- {r['name']} (score={r['score']}, price={r['price']})" for r in results
+            f"- {r['name']} | Similarity: {r['score']} | Fabric: {r['fabric']} | Color: {r['color']} | Price: ₹{r['price']} | Link: {r['product_link']}"
+            for r in results
         ]
-        return "Top matches:\n" + "\n".join(lines)
+        return f"Retrieved {len(results)} matching sarees:\n" + "\n".join(lines)
 
     return StructuredTool.from_function(
         func=_run,
         name="find_similar_sarees",
         description=(
-            "Search the saree catalogue's vector index for items visually "
-            "similar to the image the user just uploaded. Use this whenever "
-            "the user wants a similarity/visual search, 'find matches', "
-            "'more like this', etc. Takes only top_k; the query image is "
-            "already known from context."
+            "Search and filter the 1,070-item saree catalogue. "
+            "Supports visual similarity (using the active image), color filtering ('pink', 'blue', etc.), "
+            "fabric filtering ('banarasi', 'organza', 'linen', etc.), pattern filtering ('zari border', 'lotus print', etc.), "
+            "and price budget filtering (min_price/max_price). "
+            "Use this whenever the user asks for similar sarees, color/fabric filters, budget options, or catalogue search."
         ),
         args_schema=FindSimilarInput,
     )
@@ -108,7 +140,7 @@ def _build_llm():
             "https://aistudio.google.com/apikey and set it as an env var "
             "(locally) or a Streamlit secret (when deployed)."
         )
-    return ChatGoogleGenerativeAI(model=config.GEMINI_MODEL, temperature=0.3, google_api_key=api_key)
+    return ChatGoogleGenerativeAI(model=config.GEMINI_MODEL, temperature=0.2, google_api_key=api_key)
 
 
 def build_agent_executor(current_image: Optional[Image.Image], on_results) -> AgentExecutor:
@@ -117,9 +149,11 @@ def build_agent_executor(current_image: Optional[Image.Image], on_results) -> Ag
 
     img_ctx = (
         "Current session state: An image is currently active and attached in the sidebar. "
-        "If the user asks to find matches, similar sarees, or mentions their uploaded/linked image, call the find_similar_sarees tool."
+        "When the user asks for matches, similar sarees, or filtered sarees (e.g. 'show only pink colour'), "
+        "call find_similar_sarees with appropriate color/fabric/price filters."
         if current_image is not None
-        else "Current session state: No image is currently uploaded. Ask the user to upload or link an image if they want a similarity search."
+        else "Current session state: No image is currently attached. If the user asks for sarees by text/color/fabric/budget, "
+        "call find_similar_sarees to search the catalogue directly. If they want pure visual similarity, invite them to upload an image."
     )
 
     prompt = ChatPromptTemplate.from_messages(
