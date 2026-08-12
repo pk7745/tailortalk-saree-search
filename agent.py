@@ -115,9 +115,16 @@ def build_agent_executor(current_image: Optional[Image.Image], on_results) -> Ag
     llm = _build_llm()
     tool = _make_search_tool(current_image, on_results)
 
+    img_ctx = (
+        "Current session state: An image is currently active and attached in the sidebar. "
+        "If the user asks to find matches, similar sarees, or mentions their uploaded/linked image, call the find_similar_sarees tool."
+        if current_image is not None
+        else "Current session state: No image is currently uploaded. Ask the user to upload or link an image if they want a similarity search."
+    )
+
     prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", SYSTEM_PROMPT),
+            ("system", f"{SYSTEM_PROMPT}\n\n{img_ctx}"),
             MessagesPlaceholder("chat_history", optional=True),
             ("human", "{input}"),
             MessagesPlaceholder("agent_scratchpad"),
