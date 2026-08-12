@@ -48,7 +48,7 @@ Because every catalogue image belongs to the same category (*sarees*), plain CLI
 
 ### C. On-Page Metadata Enrichment (`enrich_metadata.py`)
 - Live scraping of `byrappasilks.in` product links extracts verified specifications: `material`, `blouse_included`, `blouse_length`, `saree_length`, `saree_weight`, `wash_care`, `net_quantity`, and `stock_status`.
-- **Enrichment Coverage & Honest Limitation**: **411 out of 1,070 items (38.4%)** contain full structured specification tables on the source site. For items where a specific field is not rendered on the merchant site, an explicit `None` is preserved to guarantee zero LLM hallucination.
+- **Enrichment Coverage & Honest Limitation**: **581 out of 1,070 items (54.3%)** contain full structured specification tables on the source site. For items where a specific field is not rendered on the merchant site (464 blank-description CMS listings), an explicit `None` is preserved to guarantee zero LLM hallucination. 25 dead merchant URLs (404 Not Found) are logged in `data/enrich_failed.csv`.
 
 ### D. Grounded Conversational Memory (`agent.py`)
 - Multi-turn conversational memory allows natural follow-ups (*"what's the price of the second one?"*, *"is that one dry clean only?"*).
