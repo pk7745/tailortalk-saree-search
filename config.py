@@ -47,4 +47,4 @@ REQUEST_HEADERS = {
 
 # ---- LLM ---------------------------------------------------------------
 # Google Gemini free tier (no credit card needed): https://aistudio.google.com/apikey
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
