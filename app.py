@@ -48,7 +48,7 @@ with st.sidebar:
             st.error(f"Couldn't load that URL: {e}")
 
     if st.session_state.current_image is not None:
-        st.image(st.session_state.current_image, caption="Current query image", use_container_width=True)
+        st.image(st.session_state.current_image, caption="Current query image", use_column_width=True)
         if st.button("Clear image"):
             st.session_state.current_image = None
             st.rerun()
@@ -75,7 +75,7 @@ if st.session_state.last_results:
     cols = st.columns(min(5, len(st.session_state.last_results)))
     for i, r in enumerate(st.session_state.last_results):
         with cols[i % len(cols)]:
-            st.image(r["image_url"], use_container_width=True)
+            st.image(r["image_url"], use_column_width=True)
             st.markdown(f"**{r['name']}**")
             st.caption(f"Similarity: {r['score']:.2f} · ₹{r['price']}")
             if r.get("product_link"):
