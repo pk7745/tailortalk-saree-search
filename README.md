@@ -5,8 +5,8 @@ You upload/link an image, chat naturally ("find me something like this"),
 and the agent calls a vector-search tool behind the scenes and shows the
 closest matches with similarity scores.
 
-**Live app:** `<PASTE YOUR STREAMLIT URL HERE AFTER DEPLOYING>`
-**Repo:** `<PASTE YOUR GITHUB URL HERE>`
+**Live app:** https://tailortalk-saree-search.streamlit.app
+**Repo:** https://github.com/pk7745/tailortalk-saree-search
 
 ---
 
