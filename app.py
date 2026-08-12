@@ -223,37 +223,36 @@ if actual_input:
                 )
                 answer = response["output"]
             except Exception as e:  # noqa: BLE001
-                err_str = str(e)
-                if "429" in err_str or "Quota" in err_str or "ResourceExhausted" in err_str or "rate" in err_str.lower():
-                    from search_tool import search_sarees
-                    inp_lower = actual_input.lower()
-                    color_match = None
-                    for c in ['baby pink', 'rani pink', 'peach pink', 'pink', 'navy blue', 'sky blue', 'blue', 'mint green', 'green', 'yellow', 'mustard', 'red', 'maroon', 'white', 'cream', 'black', 'purple', 'orange', 'gold']:
-                        if c in inp_lower:
-                            color_match = c
-                            break
-                    fabric_match = None
-                    for f in ['banarasi', 'organza', 'ajrakh', 'pashmina', 'linen', 'satin', 'tussar', 'munga', 'silk', 'cotton', 'tissue']:
-                        if f in inp_lower:
-                            fabric_match = f
-                            break
-                    fallback_results = search_sarees(
-                        query_image=st.session_state.current_image,
-                        color=color_match,
-                        fabric=fabric_match,
-                        top_k=5,
-                    )
-                    captured_results.extend(fallback_results)
-                    if fallback_results:
-                        filter_desc = f" ({color_match or fabric_match})" if (color_match or fabric_match) else ""
-                        if st.session_state.current_image is not None:
-                            answer = f"Found {len(fallback_results)} visually matching sarees from our catalogue{filter_desc} based on your query."
-                        else:
-                            answer = f"Found {len(fallback_results)} sarees matching your request{filter_desc}."
+                from search_tool import parse_query_intent, search_sarees
+
+                intent = parse_query_intent(actual_input)
+                fallback_results = search_sarees(
+                    query_image=st.session_state.current_image,
+                    color=intent["color"],
+                    fabric=intent["fabric"],
+                    pattern=intent["pattern"],
+                    min_price=intent["min_price"],
+                    max_price=intent["max_price"],
+                    top_k=intent["top_k"],
+                )
+                captured_results.extend(fallback_results)
+                if fallback_results:
+                    clauses = []
+                    if intent["color"]:
+                        clauses.append(f"color: {intent['color'].title()}")
+                    if intent["fabric"]:
+                        clauses.append(f"fabric: {intent['fabric'].title()}")
+                    if intent["max_price"]:
+                        clauses.append(f"budget under ₹{int(intent['max_price']):,}")
+                    if intent["min_price"]:
+                        clauses.append(f"price above ₹{int(intent['min_price']):,}")
+                    desc = " (" + ", ".join(clauses) + ")" if clauses else ""
+                    if st.session_state.current_image is not None:
+                        answer = f"Found {len(fallback_results)} visually matching sarees{desc} from our catalogue."
                     else:
-                        answer = "No matching sarees found for those specific filters. Try adjusting your search query."
+                        answer = f"Found {len(fallback_results)} authentic sarees{desc} from our catalogue."
                 else:
-                    answer = f"Something went wrong: {e}"
+                    answer = "No matching sarees found for those specific filters in our 1,070-item catalogue. Try broadening your criteria."
         st.markdown(answer)
 
     st.session_state.chat_history.append(AIMessage(content=answer))

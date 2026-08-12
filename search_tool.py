@@ -5,6 +5,7 @@ Supports:
 1. Hybrid Visual Similarity Search (FAISS + CLIP + Color Histogram)
 2. Fine-grained Multi-Attribute Filtering (Color, Fabric, Pattern, Price range, Keywords)
 3. Text & Attribute Catalogue Discovery (when no image is uploaded)
+4. Intelligent Natural Language Intent & Budget Extraction
 """
 from __future__ import annotations
 
@@ -36,7 +37,7 @@ COLORS = [
 ]
 
 FABRICS = [
-    'pashmina banarasi', 'banarasi satin', 'banarasi',
+    'pashmina banarasi', 'banarasi satin', 'banarasi', 'banaras',
     'organza tissue', 'pure organza', 'organza',
     'ajrakh printed', 'ajrakh',
     'pashmina',
@@ -98,6 +99,61 @@ def extract_attributes(name: str) -> dict[str, str]:
         "color": found_color or "Multicolor",
         "fabric": found_fabric or "Silk Blend",
         "pattern": found_pattern or "Traditional Art",
+    }
+
+
+def parse_query_intent(text: str) -> dict:
+    """Extract colors, fabrics, patterns, budget constraints, and count from user prompt."""
+    t = text.lower()
+
+    max_p = None
+    min_p = None
+
+    m_between = re.search(r'between\s*(?:rs\.?|inr|₹)?\s*(\d+)\s*(?:and|to|-)\s*(?:rs\.?|inr|₹)?\s*(\d+)', t)
+    if m_between:
+        min_p = float(m_between.group(1))
+        max_p = float(m_between.group(2))
+    else:
+        m_under = re.search(r'(?:under|below|less\s+than|upto|up\s+to|max|budget|within|<=?)\s*(?:rs\.?|inr|₹)?\s*(\d+)', t)
+        if m_under:
+            max_p = float(m_under.group(1))
+
+        m_above = re.search(r'(?:above|over|more\s+than|min|>=?)\s*(?:rs\.?|inr|₹)?\s*(\d+)', t)
+        if m_above:
+            min_p = float(m_above.group(1))
+
+    color_found = None
+    for c in sorted(COLORS, key=len, reverse=True):
+        if re.search(r'\b' + re.escape(c) + r'\b', t):
+            color_found = c
+            break
+
+    fabric_found = None
+    for f in sorted(FABRICS, key=len, reverse=True):
+        if re.search(r'\b' + re.escape(f) + r'\b', t):
+            fabric_found = f
+            break
+
+    pattern_found = None
+    for p in sorted(PATTERNS, key=len, reverse=True):
+        if re.search(r'\b' + re.escape(p) + r'\b', t):
+            pattern_found = p
+            break
+
+    top_k = config.DEFAULT_TOP_K
+    m_count = re.search(r'\b(?:show|get|find|top)?\s*(\d+)\s*(?:sarees|items|matches|results)\b', t)
+    if m_count and m_count.group(1):
+        val = int(m_count.group(1))
+        if 1 <= val <= 20 and val != int(max_p or 0) and val != int(min_p or 0):
+            top_k = val
+
+    return {
+        "color": color_found,
+        "fabric": fabric_found,
+        "pattern": pattern_found,
+        "min_price": min_p,
+        "max_price": max_p,
+        "top_k": top_k,
     }
 
 
