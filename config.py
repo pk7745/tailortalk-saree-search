@@ -3,6 +3,31 @@ Central configuration for the TailorTalk Saree Visual Search project.
 Keep every tunable knob here so ingest.py and the app always agree.
 """
 import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+except ImportError:
+    pass
+
+# If not in env, check api_key.txt
+if not os.environ.get("GOOGLE_API_KEY"):
+    for key_file in [
+        os.path.join(os.path.dirname(__file__), "api_key.txt"),
+        os.path.join(os.path.dirname(__file__), "..", "api_key.txt"),
+    ]:
+        if os.path.exists(key_file):
+            with open(key_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("GOOGLE_API_KEY="):
+                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        if val:
+                            os.environ["GOOGLE_API_KEY"] = val
+                            break
+                    elif line and not line.startswith("#") and len(line) > 20:
+                        os.environ["GOOGLE_API_KEY"] = line
+                        break
 
 # Prevent OpenMP multiple runtime conflict on Windows (PyTorch + FAISS)
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")

@@ -3,7 +3,7 @@ One-time (or re-run-when-catalogue-changes) offline job:
 
     data/products.csv  -->  download each image  -->  fuse embedding
                         -->  data/saree_index.faiss (vectors)
-                        -->  data/metadata.parquet   (name, url, price, link)
+                        -->  data/metadata.parquet   (name, url, price, link, color, fabric, pattern)
 
 Run this LOCALLY (or on Colab) BEFORE deploying -- Streamlit Community
 Cloud's free tier is not meant to download + embed 1000+ images on every
@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import io
 import os
+import re
 import time
 
 import faiss
@@ -31,6 +32,48 @@ from tqdm import tqdm
 
 import config
 from embeddings import get_fused_embedding, embedding_dim
+
+# Fixed vocabulary list for deterministic string matching
+COLORS = [
+    'baby pink', 'rani pink', 'peach pink', 'dusty pink', 'pink',
+    'navy blue', 'sky blue', 'royal blue', 'dark blue', 'blue',
+    'mint green', 'bottle green', 'pista green', 'dark green', 'olive green', 'green',
+    'dark yellow', 'mustard', 'lemon yellow', 'yellow',
+    'dusty purple', 'lavender', 'magenta', 'purple', 'violet',
+    'rust orange', 'orange', 'peach',
+    'maroon', 'red', 'crimson',
+    'white', 'cream', 'off white', 'beige',
+    'black', 'grey', 'silver', 'gold', 'golden', 'copper', 'brown'
+]
+
+FABRICS = [
+    'pashmina banarasi', 'banarasi satin', 'banarasi', 'banaras',
+    'organza tissue', 'pure organza', 'organza',
+    'ajrakh printed', 'ajrakh',
+    'pashmina',
+    'linen silk', 'fancy linen', 'linen',
+    'satin printed', 'satin',
+    'munga crape', 'munga silk', 'munga', 'crape', 'crepe',
+    'mysore silk', 'pure mysore silk', 'kanchipuram', 'chanderi',
+    'tussar silk', 'tussar', 'kadiyal', 'georgette', 'pure silk', 'semi silk',
+    'cotton silk', 'cotton', 'tissue', 'chiffon', 'patola', 'bandhani', 'habutai', 'chikankari', 'silk'
+]
+
+PATTERNS = [
+    'zari border', 'golden zari', 'contrast border', 'kadiyal border',
+    'madhubani print', 'ajrakh print', 'lotus print', 'lotus printed', 'floral', 'printed',
+    'aplic work', 'applique work', 'geometric zari', 'checks', 'embroidery',
+    'traditional art', 'butti', 'all-over', 'mirror work', 'chikankari', 'zari', 'embroidered'
+]
+
+
+def extract_attributes(name: str) -> tuple[str, str, str]:
+    """Deterministic substring matching from product Name."""
+    t = name.lower()
+    c_found = next((c for c in sorted(COLORS, key=len, reverse=True) if re.search(r'\b' + re.escape(c) + r'\b', t)), '')
+    f_found = next((f for f in sorted(FABRICS, key=len, reverse=True) if re.search(r'\b' + re.escape(f) + r'\b', t)), '')
+    p_found = next((p for p in sorted(PATTERNS, key=len, reverse=True) if re.search(r'\b' + re.escape(p) + r'\b', t)), '')
+    return c_found, f_found, p_found
 
 
 def download_image(url: str) -> Image.Image | None:
@@ -87,10 +130,11 @@ def main():
             continue
         try:
             vec = get_fused_embedding(img)
-        except Exception as e:  # noqa: BLE001 - log and keep going, don't kill a 1000-image run
+        except Exception as e:  # noqa: BLE001
             failed.append({"name": row["Name"], "image_url": url, "reason": f"embed_failed: {e}"})
             continue
 
+        c, f, p = extract_attributes(row["Name"])
         vectors.append(vec)
         records.append(
             {
@@ -99,6 +143,9 @@ def main():
                 "price": row.get("Discounted Price", row.get("Retail Price", "")),
                 "image_url": url,
                 "product_link": row.get("Website Link", ""),
+                "color": c,
+                "fabric": f,
+                "pattern": p,
             }
         )
 
@@ -108,7 +155,7 @@ def main():
 
     dim = embedding_dim()
     mat = np.vstack(vectors).astype("float32")
-    index = faiss.IndexFlatIP(dim)  # inner product on L2-normalized vecs == cosine similarity
+    index = faiss.IndexFlatIP(dim)
     index.add(mat)
     faiss.write_index(index, config.INDEX_PATH)
 

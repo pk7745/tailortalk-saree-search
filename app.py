@@ -223,14 +223,13 @@ if actual_input:
                 )
                 answer = response["output"]
             except Exception as e:  # noqa: BLE001
-                from search_tool import parse_query_intent, search_sarees
+                from search_tool import parse_query_intent, search_similar_sarees
 
                 intent = parse_query_intent(actual_input)
-                fallback_results = search_sarees(
+                fallback_results = search_similar_sarees(
                     query_image=st.session_state.current_image,
                     color=intent["color"],
                     fabric=intent["fabric"],
-                    pattern=intent["pattern"],
                     min_price=intent["min_price"],
                     max_price=intent["max_price"],
                     top_k=intent["top_k"],

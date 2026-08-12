@@ -18,7 +18,9 @@ coding agent (or CI) can gate on it. Checks, in order:
                     degenerate "everything looks the same" embedding).
   4. Schema       - search_similar_sarees() returns exactly the documented
                     fields, scores are sane floats.
-  5. Agent intent - (only if GOOGLE_API_KEY is set) the LLM correctly
+  5. Metadata Filtering - filtered searches (e.g. max_price=3000) strictly
+                    enforce the constraint across all returned results.
+  6. Agent intent - (only if GOOGLE_API_KEY is set) the LLM correctly
                     calls the tool when asked for similar items, and does
                     NOT call it for an unrelated chit-chat message.
 """
@@ -26,6 +28,7 @@ from __future__ import annotations
 
 import os
 import random
+import re
 import sys
 
 import pandas as pd
@@ -121,7 +124,22 @@ def main():
     except Exception as e:  # noqa: BLE001
         check("Schema check ran", False, str(e))
 
-    # ---- 5. Agent intent (needs API key; skipped otherwise) --------------
+    # ---- 5. Metadata Filter Enforcement -----------------------------------
+    try:
+        img = load_image_from_url(meta.iloc[sample_idxs[0]]["image_url"])
+        filtered_results = search_similar_sarees(img, top_k=5, max_price=3000)
+        filter_ok = len(filtered_results) > 0 and all(
+            float(re.sub(r"[^\d.]", "", str(r["price"]))) <= 3000 for r in filtered_results
+        )
+        check(
+            "Metadata Filtering: filtered query (max_price=3000) strictly enforces price <= 3000",
+            filter_ok,
+            f"Returned {len(filtered_results)} items, prices: {[r['price'] for r in filtered_results]}",
+        )
+    except Exception as e:  # noqa: BLE001
+        check("Metadata Filtering check ran", False, str(e))
+
+    # ---- 6. Agent intent (needs API key; skipped otherwise) --------------
     if os.environ.get("GOOGLE_API_KEY"):
         from agent import build_agent_executor
 

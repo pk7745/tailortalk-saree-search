@@ -1,7 +1,10 @@
 __pycache__/
 *.pyc
+.env
+api_key.txt
 .streamlit/secrets.toml
 .venv/
 venv/
 data/failed_downloads.csv
+data/enrich_failed.csv
 .DS_Store
