@@ -3,7 +3,7 @@
 A conversational shopping assistant that finds visually and stylistically matching sarees from an authentic ~1,070-item catalogue.
 Upload or link a saree photo, chat naturally (*"find me something like this in pink under ₹4000"*, *"is the blouse included?"*), and the agent calls a hybrid multi-modal search engine combining FAISS vector search, deterministic metadata filters, and real scraped product specifications.
 
-- **Live Deployed App:** [https://tailortalk-saree-search.streamlit.app](https://tailortalk-saree-search.streamlit.app)
+- **Live Deployed App:** [https://tailortalk-saree-search-27xcws5eqjfxzkdpbmmpy6.streamlit.app/](https://tailortalk-saree-search-27xcws5eqjfxzkdpbmmpy6.streamlit.app/)
 - **GitHub Repository:** [https://github.com/pk7745/tailortalk-saree-search](https://github.com/pk7745/tailortalk-saree-search)
 
 ---
