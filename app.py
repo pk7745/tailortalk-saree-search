@@ -223,7 +223,37 @@ if actual_input:
                 )
                 answer = response["output"]
             except Exception as e:  # noqa: BLE001
-                answer = f"Something went wrong: {e}"
+                err_str = str(e)
+                if "429" in err_str or "Quota" in err_str or "ResourceExhausted" in err_str or "rate" in err_str.lower():
+                    from search_tool import search_sarees
+                    inp_lower = actual_input.lower()
+                    color_match = None
+                    for c in ['baby pink', 'rani pink', 'peach pink', 'pink', 'navy blue', 'sky blue', 'blue', 'mint green', 'green', 'yellow', 'mustard', 'red', 'maroon', 'white', 'cream', 'black', 'purple', 'orange', 'gold']:
+                        if c in inp_lower:
+                            color_match = c
+                            break
+                    fabric_match = None
+                    for f in ['banarasi', 'organza', 'ajrakh', 'pashmina', 'linen', 'satin', 'tussar', 'munga', 'silk', 'cotton', 'tissue']:
+                        if f in inp_lower:
+                            fabric_match = f
+                            break
+                    fallback_results = search_sarees(
+                        query_image=st.session_state.current_image,
+                        color=color_match,
+                        fabric=fabric_match,
+                        top_k=5,
+                    )
+                    captured_results.extend(fallback_results)
+                    if fallback_results:
+                        filter_desc = f" ({color_match or fabric_match})" if (color_match or fabric_match) else ""
+                        if st.session_state.current_image is not None:
+                            answer = f"Found {len(fallback_results)} visually matching sarees from our catalogue{filter_desc} based on your query."
+                        else:
+                            answer = f"Found {len(fallback_results)} sarees matching your request{filter_desc}."
+                    else:
+                        answer = "No matching sarees found for those specific filters. Try adjusting your search query."
+                else:
+                    answer = f"Something went wrong: {e}"
         st.markdown(answer)
 
     st.session_state.chat_history.append(AIMessage(content=answer))
