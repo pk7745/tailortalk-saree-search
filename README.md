@@ -16,8 +16,14 @@ data/products.csv (name, sku, price, image_url, product_link)
         ├──► ingest.py (offline indexing)
         │       └─ download images → fused CLIP (512d) + HSV (512d) → FAISS IndexFlatIP (1024d)
         │
-        └──► enrich_metadata.py (offline web scraper)
-                └─ fetch product_link → extract material, blouse, saree length, wash care, stock
+        ├──► enrich_metadata.py (offline web scraper)
+        │       └─ fetch product_link → extract material, blouse, saree length, wash care, stock
+        │
+        └──► apply_4tier_pipeline.py (4-Tier provenance pipeline)
+                ├─ Tier 1: Own product page (546 records, 51.0%)
+                ├─ Tier 2: Design-family sibling inference (484 records, 45.2%)
+                ├─ Tier 3: Visual inference from photo (40 records, 3.7%)
+                └─ Tier 4: Confirmed unavailable (0 records, 0.0%)
                         │
                         ▼
         data/saree_index.faiss (1,070 vectors) + data/metadata.parquet
@@ -44,15 +50,19 @@ Because every catalogue image belongs to the same category (*sarees*), plain CLI
 
 ### B. Hybrid Search & Filtering (`search_tool.py`)
 - **Over-fetch + Filter**: Queries vector similarity from FAISS first, then strictly enforces user constraints (`max_price`, `min_price`, `color`, `fabric`), returning the `top_k` results ranked by true cosine similarity.
-- **Natural Language Parsing**: `parse_query_intent()` extracts budget constraints (*"under 3000"*), 40+ color tones (*"rani pink"*, *"navy blue"*), and authentic weave taxonomies (*"banarasi"*, *"organza"*, *"pashmina"*, *"linen"*, *"satin"*).
+- **Empirical Thresholding**: Matches with cosine similarity $\ge 0.60$ are confirmed visual matches; below $0.60$ are explicitly tagged as stylistic alternatives.
+- **Natural Language Parsing**: `parse_query_intent()` extracts budget constraints across 8+ phrasings (*"under 3000"*, *"cheaper than 3k"*, *"budget below three thousand"*), 40+ colors, and 30+ fabric weaves.
 
-### C. On-Page Metadata Enrichment (`enrich_metadata.py`)
-- Live scraping of `byrappasilks.in` product links extracts verified specifications: `material`, `blouse_included`, `blouse_length`, `saree_length`, `saree_weight`, `wash_care`, `net_quantity`, and `stock_status`.
-- **Enrichment Coverage & Honest Limitation**: **581 out of 1,070 items (54.3%)** contain full structured specification tables on the source site. For items where a specific field is not rendered on the merchant site (464 blank-description CMS listings), an explicit `None` is preserved to guarantee zero LLM hallucination. 25 dead merchant URLs (404 Not Found) are logged in `data/enrich_failed.csv`.
+### C. Strict 4-Tier Provenance Pipeline (`apply_4tier_pipeline.py`)
+Every record is tagged with its authentic `specs_source`:
+1. **Tier 1 (Own Product Page — 546 records, 51.0%)**: Verified specification table extracted from the live merchant page.
+2. **Tier 2 (Design-Family Sibling — 484 records, 45.2%)**: Inferred from identical design siblings with matching base names and high visual similarity ($\ge 0.70$). Sibling SKU is stored alongside.
+3. **Tier 3 (Visual Inference — 40 records, 3.7%)**: Visual attributes (color, pattern, weave appearance) observed from photo. Measurements, lengths, and wash-care remain strictly `None`.
+4. **Tier 4 (Unavailable — 0 records, 0.0%)**: All 1,070 indexed catalogue images are resolved.
 
 ### D. Grounded Conversational Memory (`agent.py`)
 - Multi-turn conversational memory allows natural follow-ups (*"what's the price of the second one?"*, *"is that one dry clean only?"*).
-- Strict groundedness: The agent answers product questions strictly from verified tool metadata, stating when a field is unrecorded rather than inventing details.
+- Strict groundedness: The agent states facts as confirmed for Tier 1, explicitly discloses sibling derivation for Tier 2, and refuses to guess measurements for Tier 3.
 
 ---
 
