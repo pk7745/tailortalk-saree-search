@@ -9,6 +9,7 @@ Implements:
 """
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Callable, Optional
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
