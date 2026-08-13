@@ -1,140 +1,179 @@
-# TailorTalk — Saree Visual & Attribute Similarity Search Agent
+# TailorTalk — Saree Visual & Attribute Similarity Search Agent (Qdrant Powered)
 
-A conversational shopping assistant that finds visually and stylistically matching sarees from an authentic ~1,070-item catalogue.
-Upload or link a saree photo, chat naturally (*"find me something like this in pink under ₹4000"*, *"is the blouse included?"*), and the agent calls a hybrid multi-modal search engine combining FAISS vector search, deterministic metadata filters, and real scraped product specifications.
+A conversational shopping assistant that finds visually and stylistically matching sarees from an authentic **1,074-record catalogue** (1,070 indexed + 4 documented server 404s).
+Upload or link a saree photo, chat naturally (*"find me something like this in pink under ₹4000"*, *"show me golden zari border sarees"*, *"is the blouse included?"*), and the agent calls a hybrid multi-modal search engine combining **Qdrant Vector Database**, 3-source enriched metadata filters, real scraped product specifications, and an automatic **FAISS Emergency Fallback**.
 
 - **Live Deployed App:** [https://tailortalk-saree-search-27xcws5eqjfxzkdpbmmpy6.streamlit.app/](https://tailortalk-saree-search-27xcws5eqjfxzkdpbmmpy6.streamlit.app/)
 - **GitHub Repository:** [https://github.com/pk7745/tailortalk-saree-search](https://github.com/pk7745/tailortalk-saree-search)
 
 ---
 
-## 1. Architecture & Multi-Modal Search
+## 1. Vector Search Layer Architecture (Qdrant Primary + FAISS Fallback)
 
-```
-data/products.csv (name, sku, price, image_url, product_link)
-        │
-        ├──► ingest.py (offline indexing)
-        │       └─ Dual-Representation: CLIP Whole (512d) + 3D HSV (512d) → FAISS IndexFlatIP (1024d)
-        │
-        ├──► enrich_metadata.py (offline web scraper)
-        │       └─ fetch product_link → extract material, blouse, saree length, wash care, stock
-        │
-        └──► apply_4tier_pipeline.py (4-Tier provenance pipeline)
-                ├─ Tier 1: Own product page (546 records, 51.0%)
-                ├─ Tier 2: Design-family sibling inference (484 records, 45.2%)
-                ├─ Tier 3: Visual inference from photo (40 records, 3.7%)
-                └─ Tier 4: Confirmed unavailable (0 records, 0.0%)
-                        │
-                        ▼
-        data/saree_index.faiss (1,070 vectors, 1024d) + data/metadata.parquet
-                        │
-                        ▼ committed to GitHub
-┌─────────────────────────── app.py (Streamlit Community Cloud) ──────────────────────────┐
-│  Image Upload / URL   →  session_state.current_image (LRU cached 3.0ms embeddings)      │
-│  Chat Input & Memory  →  agent.py (LangChain + Gemini Tool-Calling)                     │
-│                             └─ find_similar_sarees(top_k, max_price, color, fabric)     │
-│                                      └─ search_tool.py (Over-fetch FAISS + Filter)      │
-│  Results Grid & Cards →  Persistent in-chat cards with images, prices, badges & links   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
+```text
+                USER (Web Browser)
+                  │
+                  ▼
+             STREAMLIT (app.py)
+                  │
+                  ▼
+       GEMINI 2.5 FLASH (agent.py)
+                  │
+       find_similar_sarees tool call
+                  │
+                  ▼
+          search_tool.py
+                  │
+        ┌─────────┴─────────┐
+        │                   │
+        ▼                   ▼
+    QDRANT              FAISS
+   PRIMARY             FALLBACK
+(tailortalk_sarees)  (saree_index.faiss)
+        │                   │
+        └─────────┬─────────┘
+                  ▼
+          Candidate Products
+                  │
+                  ▼
+        Hard Price Filtering (min_price, max_price)
+                  │
+                  ▼
+       Attribute Match Score (S_attr)
+                  │
+                  ▼
+        Hybrid Re-ranking
+    0.75 Visual + 0.25 Attribute
+                  │
+                  ▼
+            TOP-K SAREES
+                  │
+        ┌─────────┴─────────┐
+        ▼                   ▼
+ Product Cards       Gemini Explanation
+        │                   │
+        └─────────┬─────────┘
+                  ▼
+                 USER
 ```
 
 ---
 
-## 2. Key Capabilities & Technical Design
+## 2. Dataset & Index Audit Summary
 
-### A. Dual-Representation Early-Fused Embeddings (`embeddings.py`)
+```
+Total Source CSV Records:               1,074
+Successfully Downloaded & Indexed:      1,070 (100% of available image URLs)
+Documented Server Image Failures:           4 (HTTP 404 Not Found on image host)
+Qdrant Collection Name:                 tailortalk_sarees
+Qdrant Vector Dimension:                1,024
+Qdrant Distance Metric:                 COSINE
+FAISS Fallback Vector Count:            1,070 (1024-dimensional IndexFlatIP)
+Enriched Metadata Rows:                 1,070
+Enriched Metadata Columns:                 37 (CSV + Web Scraped + OpenCV Visual + Name Signals)
+Unique Product Image URLs:              1,070 (Primary Key)
+```
+
+### Documented Image Server Failures (`data/failed_downloads.csv`):
+1. `QS264566`: Tussar Saree With Madhubani Print Dusty Purple With Traditional Art (HTTP 404)
+2. `QS270932`: Pure Mysore Silk Saree with pink & Contrast Blue Zari Border (HTTP 404)
+3. `QS282590`: Tissue Saree With Lotus Printed (HTTP 404)
+4. `QS282741`: Royal Blue Pure Mysore Silk Saree with Golden Checks and Border (HTTP 404)
+
+---
+
+## 3. Qdrant Configuration & Deployment Settings
+
+### Environment Variables & Streamlit Secrets (`.env` or `st.secrets`):
+
+```bash
+# Qdrant Vector Database Configuration
+USE_QDRANT=true
+QDRANT_URL=https://your-qdrant-cluster.cloud.qdrant.io:6333  # Optional for Cloud, defaults to local
+QDRANT_API_KEY=your_qdrant_api_key_here                    # Optional for Cloud, defaults to local
+QDRANT_COLLECTION_NAME=tailortalk_sarees
+
+# Google Gemini LLM API Key
+GOOGLE_API_KEY=your_gemini_api_key_here
+```
+
+### Connection Priority:
+1. **Qdrant Cloud**: Connected if `QDRANT_URL` and `QDRANT_API_KEY` are provided.
+2. **Remote Qdrant Server**: Connected if `QDRANT_URL` is provided.
+3. **Local Embedded Qdrant**: Connected via `qdrant_client.QdrantClient(path="data/qdrant_db")`.
+4. **FAISS Emergency Fallback**: Automatically triggered if Qdrant is disabled or unavailable.
+
+---
+
+## 4. Key Capabilities & Technical Design
+
+### A. Dual-Representation Fused Embeddings (`embeddings.py`)
 Because all 1,070 items share the same basic category silhouette, standard embeddings collapse. We combine two complementary representations into a 1,024-dimensional L2-normalized vector:
 1. **Whole-Image OpenCLIP ViT-B/32 (70% weight)**: Captures global silhouette, drapery structure, and semantic motif textures.
-2. **3D HSV Color Histogram (30% weight)**: Captures precise multi-tone color distributions across 512 bins (independent of lighting exposure variances).
-Because every catalogue image belongs to the same category (*sarees*), plain CLIP often over-indexes on general "saree-ness". We solve this via **early-fusion**:
-1. **OpenCLIP ViT-B/32** (512-d, L2 normalized): Garment silhouette, drapery, and semantic patterns.
-2. **3D HSV Color Histogram** (8×8×8 = 512-d, L2 normalized): Hue, saturation, and multi-color distribution.
-3. **Fused Vector**: $\text{normalize}(0.7 \cdot \text{CLIP} + 0.3 \cdot \text{HSV}) \rightarrow \mathbf{1,024}\text{-dimensional vector}$.
+2. **3D HSV Color Histogram (30% weight)**: Captures precise multi-tone color distributions across 512 bins.
+3. **Fused Vector**: $\text{normalize}(0.7 \cdot \text{CLIP} + 0.3 \cdot \text{HSV}) \rightarrow \mathbf{1,024}\text{-dimensional unit vector}$.
 
-### B. Hybrid Search & Filtering (`search_tool.py`)
-- **Over-fetch + Filter**: Queries vector similarity from FAISS first, then strictly enforces user constraints (`max_price`, `min_price`, `color`, `fabric`), returning the `top_k` results ranked by true cosine similarity.
-- **Empirical Thresholding**: Matches with cosine similarity $\ge 0.60$ are confirmed visual matches; below $0.60$ are explicitly tagged as stylistic alternatives.
-- **Natural Language Parsing**: `parse_query_intent()` extracts budget constraints across 8+ phrasings (*"under 3000"*, *"cheaper than 3k"*, *"budget below three thousand"*), 40+ colors, and 30+ fabric weaves.
+### B. Hybrid Search & Attribute-Weighted Re-Ranking (`search_tool.py`)
+- **Qdrant Candidate Retrieval**: Vector similarity search on Qdrant with payload price range filtering.
+- **Hard Constraints**: Strictly enforces budget constraints (`max_price`, `min_price`).
+- **Attribute Match Scoring ($S_{\text{attr}} \in [0.0, 1.0]$)**: Evaluates candidate relevance for requested border, pallu, pattern, color, and fabric attributes:
+  - `1.0`: Exact match in primary catalogue/scraped metadata
+  - `0.8`: Strong synonym / family match (e.g. `zari border` ↔ `golden zari`)
+  - `0.5`: OpenCV visual detection signal (`visual_border_detected`, `visual_zari_detected`)
+  - `0.0`: No match (filtered out)
+- **Combined Re-Ranking Formula**:
+  $$\text{FinalScore} = \begin{cases} S_{\text{visual}} & \text{for Image-Only Queries (100\% visual dominant)} \\ 0.75 \cdot S_{\text{visual}} + 0.25 \cdot S_{\text{attr}} & \text{for Image + Attribute Queries (75\% visual, 25\% attribute boost)} \\ S_{\text{attr}} & \text{for Text-Only Queries} \end{cases}$$
 
-### C. Strict 4-Tier Provenance Pipeline (`apply_4tier_pipeline.py`)
+### C. Strict 4-Tier Provenance Pipeline
 Every record is tagged with its authentic `specs_source`:
-1. **Tier 1 (Own Product Page — 546 records, 51.0%)**: Verified specification table extracted from the live merchant page.
-2. **Tier 2 (Design-Family Sibling — 484 records, 45.2%)**: Inferred from identical design siblings with matching base names and high visual similarity ($\ge 0.70$). Sibling SKU is stored alongside.
-3. **Tier 3 (Visual Inference — 40 records, 3.7%)**: Visual attributes (color, pattern, weave appearance) observed from photo. Measurements, lengths, and wash-care remain strictly `None`.
-4. **Tier 4 (Unavailable — 0 records, 0.0%)**: All 1,070 indexed catalogue images are resolved.
-
-### D. Grounded Conversational Memory (`agent.py`)
-- Multi-turn conversational memory allows natural follow-ups (*"what's the price of the second one?"*, *"is that one dry clean only?"*).
-- Strict groundedness: The agent states facts as confirmed for Tier 1, explicitly discloses sibling derivation for Tier 2, and refuses to guess measurements for Tier 3.
-
-### E. Border/Pallu Region Matching: Chronicle of 3 Investigations
-To address fine-grained border and pallu differentiation, we conducted three rigorous empirical investigations across all 1,070 catalogue records:
-
-1. **Attempt 1: Fixed Geometric Cropping (Bottom 35% / Right 35%)**:
-   - *Hypothesis*: Saree borders predominantly fall along the lower skirt and right-side pallu fall.
-   - *Outcome*: Varied mannequin draping angles and folds caused arbitrary geometric cuts to slice through plain pleats or background, degrading 3 of 10 test pairs and introducing spatial noise that reduced self-identity confidence.
-
-2. **Attempt 2: Pretrained Deep Segmentation (`sayeed99/segformer-b3-fashion`)**:
-   - *Hypothesis*: Semantic segmentation would adaptively detect ornamentation (`applique`, `bead`, `fringe`, `sequin`, `tassel`).
-   - *Outcome*: Revealed a fundamental domain mismatch. SegFormer is trained on Western street-wear with sewn-on trims, whereas authentic Indian handloom sarees feature **jacquard-woven gold Zari and brocade wefts** integrated directly into the fabric's warp and weft (0.00% detection). The mandatory hard fallback safely defaulted 100% of images to whole-image representations without degradation.
-
-3. **Attempt 3: Classical Computer Vision Heuristic (OpenCV Edge Density & Texture Variance)**:
-   - *Hypothesis*: Multi-strip Canny edge density, Laplacian variance, and HSV saturation gradients would locate ornate high-frequency border bands.
-   - *Outcome*: Successfully detected ornate regions across 93.6% (1,001/1,070) of catalogue images. However, feeding non-standard rectangular bounding boxes into CLIP's fixed 224×224 input tensor caused aspect-ratio warping and high-frequency edge artifacts. On a 22-pair full-catalogue rank test, 10 pairs degraded (distractors moved closer, with diff-border median rank worsening from #182 to #168).
-
-4. **Final Proven Architecture**:
-   - By unanimous empirical evidence, the **Dual-Representation Early-Fusion Model (Whole-Image CLIP 0.70 + 3D HSV Color 0.30)** with lossless in-memory caching provides the highest retrieval precision and stability:
-     - **Same-Border / Matching Design Targets**: Median Rank **#10** (top matches at #3, #7, #8, #10, #16).
-     - **Different-Border Distractors**: Median Rank **#182** (pushed down to #305, #516, #879, #965).
-     - **Separation**: **172 rank positions** of natural discrimination without spatial distortion, retaining **100% exact self-identity (`score >= 0.98`)** and **3.0ms re-query latency**. Specific border weave names (*Temple Border*, *Kadiyal*, *Zari*) are grounded via scraped product metadata.
+1. **Tier 1 (Own Product Page — 546 records, 51.0%)**: Verified specification table extracted from live merchant page.
+2. **Tier 2 (Design-Family Sibling — 484 records, 45.2%)**: Inferred from identical design siblings with matching base names and high visual similarity ($\ge 0.70$).
+3. **Tier 3 (Visual Inference — 40 records, 3.7%)**: Visual attributes (color, pattern, weave appearance) observed from photo.
+4. **Tier 4 (Unavailable — 4 records)**: Explicitly documented image server HTTP 404 errors.
 
 ---
 
-## 3. Tech Stack & Decisions
+## 5. Migration & Verification Scripts
+
+- **`migrate_to_qdrant.py`**: Idempotent migration script that batch upserts 1,070 products with 1024d vectors and 37 metadata columns as payload into Qdrant collection `tailortalk_sarees`.
+- **`validate_qdrant.py`**: Audits collection status, vector size (1024), distance metric (COSINE), point count (1070), and payload fields.
+- **`compare_faiss_qdrant.py`**: Compares top-5 candidates, similarity scores, and search latency between FAISS and Qdrant.
+- **`test_qdrant_queries.py`**: Regression test verifying 15 mandatory user queries on Qdrant.
+- **`verify_counts.py`**: Validates CSV row count (1,074), metadata row count (1,070), FAISS `ntotal` (1,070), unique image URLs (1,070), and 37 enriched metadata columns.
+
+---
+
+## 6. Commands to Run Migration & Application
+
+### Run Qdrant Migration:
+```bash
+python migrate_to_qdrant.py
+```
+
+### Validate Qdrant Collection:
+```bash
+python validate_qdrant.py
+```
+
+### Run Comparison Test (FAISS vs Qdrant):
+```bash
+python compare_faiss_qdrant.py
+```
+
+### Run Application:
+```bash
+streamlit run app.py
+```
+
+---
+
+## 7. Tech Stack & Decisions
 
 | Layer | Component | Rationale |
 |---|---|---|
-| **Vector DB** | **Meta FAISS (`IndexFlatIP`)** | In-process exact cosine similarity for 1,070 vectors; 0ms network latency, zero cloud hosting costs. |
-| **Embeddings** | **OpenCLIP ViT-B/32 + HSV** | Dual-representation early-fusion with lossless in-memory caching (~3ms re-queries). |
+| **Vector DB (Primary)** | **Qdrant (`tailortalk_sarees`)** | Production vector database supporting Cloud & Local mode with COSINE distance and payload filtering. |
+| **Vector DB (Fallback)**| **Meta FAISS (`IndexFlatIP`)** | Emergency local fallback ensuring 0ms search crashes if Qdrant credentials fail. |
+| **Embeddings** | **OpenCLIP ViT-B/32 + 3D HSV** | Dual-representation early-fusion vector space (1024d, L2 normalized). |
+| **Visual Analysis** | **OpenCV (`cv2`)** | Supplementary Canny edge density, region contrast, and Zari sheen analysis. |
 | **Agent / LLM** | **LangChain + Google Gemini Flash** | Function calling with typed `Pydantic` filter schemas. |
-| **Frontend** | **Streamlit** | Interactive chat interface, persistent product cards, image previews, and luxury badges. |
-
----
-
-## 4. Verification & Testing
-
-Run the automated self-test suite:
-```bash
-python selftest.py
-```
-
-### Self-Test Results (7/7 Checks Passing):
-```text
-[PASS] Coverage >= 90% of catalogue indexed (1,070 / 1,074 rows, 99.6%)
-[PASS] Identity: querying a catalogue image returns itself as #1 (score >= 0.98)
-[PASS] Discrimination: similarity scores have real spread across catalogue (> 0.15)
-[PASS] Schema: results contain documented fields, top_k respected
-[PASS] Metadata Filtering: filtered query (max_price=3000) strictly enforces price <= 3000
-[PASS] Agent calls the tool when asked for similar items
-[PASS] Agent does NOT call the tool for unrelated chit-chat
-```
-
----
-
-## 5. Local Setup Instructions
-
-```bash
-git clone https://github.com/pk7745/tailortalk-saree-search.git
-cd tailortalk-saree-search
-
-python -m venv venv
-# Windows:
-venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
-
-pip install -r requirements.txt
-
-# Run the app locally
-streamlit run app.py
-```
+| **Frontend** | **Streamlit** | Reactive chat interface, persistent product cards grid, and luxury badges. |

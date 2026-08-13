@@ -34,8 +34,9 @@ TOOL INVOCATION RULES:
    - Extract min price constraints: e.g. 'above 2000', 'over 2k', 'starting from 2000' -> min_price=2000.
    - Extract target color: e.g. 'pink', 'red', 'navy blue', 'mustard', 'black', 'green' -> color.
    - Extract target fabric: e.g. 'banarasi', 'organza', 'tussar', 'linen', 'satin', 'munga', 'cotton' -> fabric.
-   - Extract requested count: default 5, up to 20 -> top_k.
-   - ALWAYS call `find_similar_sarees` with all extracted filter parameters.
+    - Extract target pattern, border, or work type: e.g. 'zari border', 'golden zari', 'temple border', 'kadiyal border', 'contrast border', 'floral', 'embroidery', 'applique work', 'geometric zari', 'pallu' -> pattern.
+    - Extract requested count: default 5, up to 20 -> top_k.
+    - ALWAYS call `find_similar_sarees` with all extracted filter parameters.
 2. For general chit-chat (e.g. 'hi', 'how are you?', 'tell me a joke') without product requests, respond politely without calling tools.
 
 PROVENANCE-AWARE HONESTY RULES (CRITICAL):
@@ -46,9 +47,10 @@ Every fact you state about a specific saree must be traceable to its `specs_sour
 - If zero results satisfy a user's filter combination: Plainly and honestly state that no matching sarees were found for those exact criteria, with no fallback dressed up as a match.
 - If results are weak matches (is_weak_match is True or score < 0.60): Note that the results are stylistic alternatives rather than close visual matches.
 
-BORDER & PALLU WEAVE MATCHING:
-- Our 3-way multi-modal fusion explicitly analyzes the lower border (bottom 35%) and pallu drape (right 35%) for intricate zari motifs, temple borders, kadiyal borders, and cutwork.
-- If candidate sarees share verified border/pallu text metadata from catalogue specifications (e.g. both have verified temple border or zari border work), highlight this supporting signal in your explanation (e.g. 'both feature verified temple border work per catalogue records'). Never invent a border description from the photo alone if catalogue text is absent.
+BORDER & PALLU WEAVE MATCHING & PATTERN SUPPORT:
+- When users ask for specific borders, zari work, or patterns (e.g. 'zari border', 'golden zari', 'temple border', 'kadiyal border', 'contrast border', 'floral work', 'embroidery', 'applique work'), pass the appropriate `pattern` value to `find_similar_sarees`.
+- If candidate sarees share verified border/pallu text metadata from catalogue specifications (e.g. verified temple border, zari border, kadiyal work, parrot pallu), highlight this supporting signal in your explanation.
+- For pallu-specific queries, ground your answer strictly in the catalogue's verified metadata and visual similarity without claiming computer-vision pallu segmentation.
 
 CONVERSATIONAL MEMORY & PRONOUN RESOLUTION:
 - Accurately resolve references across multiple conversation turns: e.g., 'the second one', 'that one', 'the red one', 'the first saree'. Use the sarees listed in earlier conversation turns to identify the exact item.
@@ -77,6 +79,10 @@ class FindSimilarInput(BaseModel):
         default=None,
         description="Target fabric weave filter (e.g. 'banarasi', 'organza', 'pashmina', 'linen', 'satin', 'munga', 'cotton').",
     )
+    pattern: Optional[str] = Field(
+        default=None,
+        description="Target pattern, border, pallu, or work type filter (e.g. 'zari border', 'golden zari', 'temple border', 'kadiyal border', 'contrast border', 'floral', 'embroidery', 'applique work', 'geometric zari', 'pallu').",
+    )
 
 
 def make_search_tool(
@@ -90,8 +96,9 @@ def make_search_tool(
         min_price: Optional[float] = None,
         color: Optional[str] = None,
         fabric: Optional[str] = None,
+        pattern: Optional[str] = None,
     ) -> list[dict]:
-        """Search the catalogue for sarees matching the uploaded image and/or specified color, fabric, and price constraints."""
+        """Search the catalogue for sarees matching the uploaded image and/or specified color, fabric, pattern/border/work, and price constraints."""
         results = search_similar_sarees(
             query_image=query_image,
             top_k=top_k,
@@ -99,6 +106,7 @@ def make_search_tool(
             min_price=min_price,
             color=color,
             fabric=fabric,
+            pattern=pattern,
         )
         if on_results is not None:
             on_results(results)

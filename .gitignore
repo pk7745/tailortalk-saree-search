@@ -7,4 +7,7 @@ api_key.txt
 venv/
 data/failed_downloads.csv
 data/enrich_failed.csv
+data/qdrant_db/
+*.log
 .DS_Store
+

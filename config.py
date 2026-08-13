@@ -3,12 +3,15 @@ Central configuration for the TailorTalk Saree Visual Search project.
 Keep every tunable knob here so ingest.py and the app always agree.
 """
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
     load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 except ImportError:
     pass
+
 
 # If not in env, check api_key.txt
 if not os.environ.get("GOOGLE_API_KEY"):
@@ -71,3 +74,23 @@ REQUEST_HEADERS = {
 # ---- LLM ---------------------------------------------------------------
 # Google Gemini free tier (no credit card needed): https://aistudio.google.com/apikey
 GEMINI_MODEL = "gemini-2.5-flash"
+
+# ---- Qdrant Vector DB -------------------------------------------------
+def get_secret_or_env(key_name: str, default_val=None):
+    """Retrieve config from env var or Streamlit secrets if running in Streamlit."""
+    val = os.environ.get(key_name)
+    if not val:
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets") and key_name in st.secrets:
+                val = st.secrets[key_name]
+        except Exception:
+            pass
+    return val if val else default_val
+
+USE_QDRANT = get_secret_or_env("USE_QDRANT", "true").lower() in ("true", "1", "yes")
+QDRANT_URL = get_secret_or_env("QDRANT_URL", None)
+QDRANT_API_KEY = get_secret_or_env("QDRANT_API_KEY", None)
+QDRANT_COLLECTION_NAME = get_secret_or_env("QDRANT_COLLECTION_NAME", "tailortalk_sarees")
+QDRANT_LOCAL_PATH = os.path.join(DATA_DIR, "qdrant_db")
+
