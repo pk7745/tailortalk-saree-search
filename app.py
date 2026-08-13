@@ -252,6 +252,22 @@ if actual_input:
                         answer = f"Found {len(fallback_results)} authentic sarees{desc} from our catalogue."
                 else:
                     answer = "No matching sarees found for those specific filters in our 1,070-item catalogue. Try broadening your criteria."
+
+        # Guaranteed auto-trigger for active images if tool was not called
+        if st.session_state.current_image is not None and not captured_results:
+            from search_tool import parse_query_intent, search_similar_sarees
+            intent = parse_query_intent(actual_input)
+            if any(k in actual_input.lower() for k in ["similar", "find", "show", "match", "saree", "like"]) or intent["color"] or intent["fabric"] or intent["max_price"]:
+                auto_results = search_similar_sarees(
+                    query_image=st.session_state.current_image,
+                    color=intent["color"],
+                    fabric=intent["fabric"],
+                    min_price=intent["min_price"],
+                    max_price=intent["max_price"],
+                    top_k=intent["top_k"],
+                )
+                captured_results.extend(auto_results)
+
         st.markdown(answer)
 
     st.session_state.chat_history.append(AIMessage(content=answer))

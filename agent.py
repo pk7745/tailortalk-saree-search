@@ -21,9 +21,11 @@ from pydantic import BaseModel, Field
 import config
 from search_tool import search_similar_sarees
 
-SYSTEM_PROMPT = """You are TailorTalk's expert Saree Stylist and Personal Shopper.
+BASE_SYSTEM_PROMPT = """You are TailorTalk's expert Saree Stylist and Personal Shopper.
 
 Your goal is to help users find sarees matching their visual and stylistic preferences from our verified 1,070-item catalogue.
+
+{image_state_instruction}
 
 TOOL INVOCATION RULES:
 1. When the user asks for similar sarees or specifies constraints (colors, fabrics, patterns, budgets):
@@ -32,9 +34,8 @@ TOOL INVOCATION RULES:
    - Extract target color: e.g. 'pink', 'red', 'navy blue', 'mustard', 'black', 'green' -> color.
    - Extract target fabric: e.g. 'banarasi', 'organza', 'tussar', 'linen', 'satin', 'munga', 'cotton' -> fabric.
    - Extract requested count: default 5, up to 20 -> top_k.
-   - Call `find_similar_sarees` with all extracted filter parameters.
-2. If no query image is uploaded and the user asks to find sarees without filters, politely ask them to upload or link a saree photo.
-3. For general chit-chat (e.g. 'hi', 'how are you?', 'tell me a joke') without product requests, respond politely without calling tools.
+   - ALWAYS call `find_similar_sarees` with all extracted filter parameters.
+2. For general chit-chat (e.g. 'hi', 'how are you?', 'tell me a joke') without product requests, respond politely without calling tools.
 
 PROVENANCE-AWARE HONESTY RULES (CRITICAL):
 Every fact you state about a specific saree must be traceable to its `specs_source` metadata:
@@ -105,6 +106,21 @@ def build_agent_executor(
     query_image: Optional[Image.Image],
     on_results: Optional[Callable[[list[dict]], None]] = None,
 ) -> AgentExecutor:
+    if query_image is not None:
+        image_instruction = (
+            "ACTIVE QUERY IMAGE STATUS: The user has uploaded an active query image for this session. "
+            "Whenever the user asks for similar sarees, matching sarees, or applies filters, "
+            "ALWAYS immediately call the `find_similar_sarees` tool."
+        )
+    else:
+        image_instruction = (
+            "ACTIVE QUERY IMAGE STATUS: No query image is currently uploaded. "
+            "If the user asks for visually similar sarees without any filters, politely ask them to upload or link a saree photo. "
+            "If they specify text filters (e.g. 'find pink banarasi sarees under 3000'), search the catalogue by calling `find_similar_sarees`."
+        )
+
+    system_prompt = BASE_SYSTEM_PROMPT.format(image_state_instruction=image_instruction)
+
     llm = ChatGoogleGenerativeAI(
         model=config.GEMINI_MODEL,
         temperature=0.1,
@@ -112,7 +128,7 @@ def build_agent_executor(
     tools = [make_search_tool(query_image, on_results)]
     prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", SYSTEM_PROMPT),
+            ("system", system_prompt),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad"),
