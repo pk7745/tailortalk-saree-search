@@ -102,6 +102,14 @@ def make_search_tool(
     return find_similar_sarees_tool
 
 
+@lru_cache(maxsize=1)
+def _get_llm():
+    return ChatGoogleGenerativeAI(
+        model=config.GEMINI_MODEL,
+        temperature=0.1,
+    )
+
+
 def build_agent_executor(
     query_image: Optional[Image.Image],
     on_results: Optional[Callable[[list[dict]], None]] = None,
@@ -121,10 +129,7 @@ def build_agent_executor(
 
     system_prompt = BASE_SYSTEM_PROMPT.format(image_state_instruction=image_instruction)
 
-    llm = ChatGoogleGenerativeAI(
-        model=config.GEMINI_MODEL,
-        temperature=0.1,
-    )
+    llm = _get_llm()
     tools = [make_search_tool(query_image, on_results)]
     prompt = ChatPromptTemplate.from_messages(
         [

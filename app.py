@@ -72,6 +72,20 @@ st.markdown(
 if "GOOGLE_API_KEY" in st.secrets:
     os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
 
+
+@st.cache_resource(show_spinner=False)
+def _warmup_backend_engine():
+    try:
+        from embeddings import _lazy_load_clip
+        from search_tool import _load_index_and_meta
+        _lazy_load_clip()
+        _load_index_and_meta()
+    except Exception:
+        pass
+
+
+_warmup_backend_engine()
+
 st.title("🥻 TailorTalk Saree Search")
 st.caption(
     "Search across **1,070 authentic sarees** with multi-modal visual similarity, "
