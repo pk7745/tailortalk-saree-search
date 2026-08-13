@@ -150,13 +150,34 @@ def main():
             called["count"] += 1
 
         try:
+            import time
+            time.sleep(2)
             executor = build_agent_executor(img, _on_results)
-            executor.invoke({"input": "find me similar sarees to this one", "chat_history": []})
+            
+            # Retry up to 3 times on free-tier rate limit (429)
+            for attempt in range(3):
+                try:
+                    executor.invoke({"input": "find me similar sarees to this one", "chat_history": []})
+                    break
+                except Exception as ex:
+                    if "429" in str(ex) and attempt < 2:
+                        time.sleep(25)
+                    else:
+                        raise
             check("Agent calls the tool when asked for similar items", called["count"] >= 1)
 
             called["count"] = 0
+            time.sleep(2)
             executor2 = build_agent_executor(img, _on_results)
-            executor2.invoke({"input": "hi, how are you?", "chat_history": []})
+            for attempt in range(3):
+                try:
+                    executor2.invoke({"input": "hi, how are you?", "chat_history": []})
+                    break
+                except Exception as ex:
+                    if "429" in str(ex) and attempt < 2:
+                        time.sleep(25)
+                    else:
+                        raise
             check("Agent does NOT call the tool for unrelated chit-chat", called["count"] == 0)
         except Exception as e:  # noqa: BLE001
             check("Agent intent checks ran", False, str(e))

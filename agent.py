@@ -112,6 +112,7 @@ def _get_llm():
     return ChatGoogleGenerativeAI(
         model=config.GEMINI_MODEL,
         temperature=0.1,
+        max_retries=6,
     )
 
 
