@@ -88,13 +88,13 @@ def main():
         results = search_similar_sarees(img, top_k=3)
         top = results[0] if results else None
         identity_scores.append(top["score"] if top else -1)
-        if not top or top["image_url"] != row["image_url"] or top["score"] < 0.97:
+        if not top or top["image_url"] != row["image_url"] or top["score"] < 0.98:
             identity_ok = False
             print(f"  identity mismatch for {row['name']!r}: top match was "
                   f"{top['name'] if top else None!r} at score {top['score'] if top else None}")
 
     check(
-        "Identity: querying a catalogue image returns itself as #1 (score>=0.97)",
+        "Identity: querying a catalogue image returns itself as #1 (score>=0.98)",
         identity_ok,
         f"scores seen: {identity_scores}",
     )
@@ -162,35 +162,6 @@ def main():
             check("Agent intent checks ran", False, str(e))
     else:
         print("[SKIP] Agent intent checks (GOOGLE_API_KEY not set in this shell)")
-
-    # ---- 7. Border/Pallu Weave Discrimination ----------------------------
-    try:
-        from embeddings import get_fused_embedding
-        import numpy as np
-
-        row_q = meta[meta["sku"].str.contains("QS268580", na=False)].iloc[0]
-        row_match = meta[meta["sku"].str.contains("QS268576", na=False)].iloc[0]
-        row_diff = meta[meta["sku"].str.contains("QS276338", na=False)].iloc[0]
-
-        img_q = load_image_from_url(row_q["image_url"])
-        img_match = load_image_from_url(row_match["image_url"])
-        img_diff = load_image_from_url(row_diff["image_url"])
-
-        v_q = get_fused_embedding(img_q)
-        v_match = get_fused_embedding(img_match)
-        v_diff = get_fused_embedding(img_diff)
-
-        score_match = float(np.dot(v_q, v_match))
-        score_diff = float(np.dot(v_q, v_diff))
-        border_disc_ok = score_match > score_diff
-
-        check(
-            "Border/Pallu Discrimination: 3-way fused search ranks same-border match above different-border distractor",
-            border_disc_ok,
-            f"Same-border score ({score_match:.4f}) > Different-border score ({score_diff:.4f})",
-        )
-    except Exception as e:  # noqa: BLE001
-        check("Border/Pallu Discrimination check ran", False, str(e))
 
     # ---- Summary -----------------------------------------------------------
     print("\n" + "=" * 60)

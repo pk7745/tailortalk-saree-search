@@ -13,8 +13,8 @@ Upload or link a saree photo, chat naturally (*"find me something like this in p
 ```
 data/products.csv (name, sku, price, image_url, product_link)
         │
-        ├──► ingest.py & build_3way_index_fast.py (offline indexing)
-        │       └─ 3-Way Fusion: CLIP Whole (512d) + HSV (512d) + Border/Pallu Crop CLIP (512d) → FAISS IndexFlatIP (1536d)
+        ├──► ingest.py (offline indexing)
+        │       └─ Dual-Representation: CLIP Whole (512d) + 3D HSV (512d) → FAISS IndexFlatIP (1024d)
         │
         ├──► enrich_metadata.py (offline web scraper)
         │       └─ fetch product_link → extract material, blouse, saree length, wash care, stock
@@ -26,7 +26,7 @@ data/products.csv (name, sku, price, image_url, product_link)
                 └─ Tier 4: Confirmed unavailable (0 records, 0.0%)
                         │
                         ▼
-        data/saree_index.faiss (1,070 vectors, 1536d) + data/metadata.parquet
+        data/saree_index.faiss (1,070 vectors, 1024d) + data/metadata.parquet
                         │
                         ▼ committed to GitHub
 ┌─────────────────────────── app.py (Streamlit Community Cloud) ──────────────────────────┐
@@ -42,11 +42,10 @@ data/products.csv (name, sku, price, image_url, product_link)
 
 ## 2. Key Capabilities & Technical Design
 
-### A. 3-Way Region-Aware Fused Embeddings (`embeddings.py`)
-Because all 1,070 items share the same basic category silhouette, standard embeddings collapse. We combine three independent representations into a 1,536-dimensional L2-normalized vector:
-1. **Whole-Image CLIP ViT-B/32 (55% weight)**: Captures global silhouette, drapery, and overall motif layout.
-2. **3D HSV Color Histogram (25% weight)**: Captures precise multi-tone color distributions across 512 bins.
-3. **Border/Pallu Region-Crop CLIP (20% weight)**: Crops the lower border (bottom 35%) and pallu fall (right 35%) to capture fine-grained zari motifs, temple borders, kadiyal borders, and cutwork.
+### A. Dual-Representation Early-Fused Embeddings (`embeddings.py`)
+Because all 1,070 items share the same basic category silhouette, standard embeddings collapse. We combine two complementary representations into a 1,024-dimensional L2-normalized vector:
+1. **Whole-Image OpenCLIP ViT-B/32 (70% weight)**: Captures global silhouette, drapery structure, and semantic motif textures.
+2. **3D HSV Color Histogram (30% weight)**: Captures precise multi-tone color distributions across 512 bins (independent of lighting exposure variances).
 Because every catalogue image belongs to the same category (*sarees*), plain CLIP often over-indexes on general "saree-ness". We solve this via **early-fusion**:
 1. **OpenCLIP ViT-B/32** (512-d, L2 normalized): Garment silhouette, drapery, and semantic patterns.
 2. **3D HSV Color Histogram** (8×8×8 = 512-d, L2 normalized): Hue, saturation, and multi-color distribution.
