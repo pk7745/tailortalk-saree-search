@@ -78,6 +78,7 @@ def _warmup_backend_engine():
     try:
         from embeddings import _lazy_load_clip
         from search_tool import _load_index_and_meta
+
         _lazy_load_clip()
         _load_index_and_meta()
     except Exception:
@@ -95,8 +96,10 @@ st.caption(
 # ---------------------------------------------------------------------
 # Session state
 # ---------------------------------------------------------------------
+if "display_messages" not in st.session_state:
+    st.session_state.display_messages = []  # list[dict] with role, content, results
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []  # list[HumanMessage | AIMessage]
+    st.session_state.chat_history = []  # list[HumanMessage | AIMessage] for LangChain
 if "current_image" not in st.session_state:
     st.session_state.current_image = None
 if "last_results" not in st.session_state:
@@ -173,22 +176,15 @@ with col4:
         quick_prompt = "Show me 8 similar sarees"
 
 # ---------------------------------------------------------------------
-# Chat history render
+# Helper function to render a product card grid
 # ---------------------------------------------------------------------
-for msg in st.session_state.chat_history:
-    role = "user" if isinstance(msg, HumanMessage) else "assistant"
-    with st.chat_message(role):
-        st.markdown(msg.content)
-
-# ---------------------------------------------------------------------
-# Results Grid Render
-# ---------------------------------------------------------------------
-if st.session_state.last_results:
-    st.subheader(f"✨ Matching Sarees ({len(st.session_state.last_results)} results)")
-    num_cols = min(5, max(1, len(st.session_state.last_results)))
+def render_saree_cards(results: list[dict]):
+    if not results:
+        return
+    num_cols = min(4, max(1, len(results)))
     cols = st.columns(num_cols)
-    for i, r in enumerate(st.session_state.last_results):
-        with cols[i % len(cols)]:
+    for i, r in enumerate(results):
+        with cols[i % num_cols]:
             st.image(r["image_url"], use_column_width=True)
             st.markdown(f"**{r['name']}**")
 
@@ -212,6 +208,16 @@ if st.session_state.last_results:
             if r.get("product_link"):
                 st.markdown(f"[View on Store ↗]({r['product_link']})")
 
+
+# ---------------------------------------------------------------------
+# Persistent Chat History Render (with stored product cards per turn)
+# ---------------------------------------------------------------------
+for msg in st.session_state.display_messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        if msg.get("results"):
+            render_saree_cards(msg["results"])
+
 # ---------------------------------------------------------------------
 # Chat input
 # ---------------------------------------------------------------------
@@ -219,6 +225,8 @@ user_input = st.chat_input("Ask about colors, fabrics, patterns, prices, or find
 actual_input = quick_prompt or user_input
 
 if actual_input:
+    # 1. Append human message
+    st.session_state.display_messages.append({"role": "user", "content": actual_input, "results": None})
     st.session_state.chat_history.append(HumanMessage(content=actual_input))
     with st.chat_message("user"):
         st.markdown(actual_input)
@@ -270,6 +278,7 @@ if actual_input:
         # Guaranteed auto-trigger for active images if tool was not called
         if st.session_state.current_image is not None and not captured_results:
             from search_tool import parse_query_intent, search_similar_sarees
+
             intent = parse_query_intent(actual_input)
             if any(k in actual_input.lower() for k in ["similar", "find", "show", "match", "saree", "like"]) or intent["color"] or intent["fabric"] or intent["max_price"]:
                 auto_results = search_similar_sarees(
@@ -283,7 +292,13 @@ if actual_input:
                 captured_results.extend(auto_results)
 
         st.markdown(answer)
+        if captured_results:
+            render_saree_cards(captured_results)
 
+    # 2. Append assistant message with its permanently attached results
+    st.session_state.display_messages.append(
+        {"role": "assistant", "content": answer, "results": captured_results if captured_results else None}
+    )
     st.session_state.chat_history.append(AIMessage(content=answer))
     if captured_results:
         st.session_state.last_results = captured_results
