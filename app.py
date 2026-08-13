@@ -178,12 +178,34 @@ with col4:
 # ---------------------------------------------------------------------
 # Helper function to render a product card grid
 # ---------------------------------------------------------------------
-def render_saree_cards(results: list[dict]):
+# Helper functions to deduplicate and render product card grid
+# ---------------------------------------------------------------------
+def _get_product_id(r: dict) -> str:
+    """Returns stable unique product identifier for deduplication."""
+    return r.get("product_link") or r.get("image_url") or r.get("sku") or r.get("name", "")
+
+
+def _deduplicate_saree_results(results: list[dict]) -> list[dict]:
+    """Deduplicates product list by stable product ID, preserving highest final_score."""
     if not results:
+        return []
+    unique_map = {}
+    for item in results:
+        pid = _get_product_id(item)
+        if pid not in unique_map or item.get("final_score", 0) > unique_map[pid].get("final_score", 0):
+            unique_map[pid] = item
+    deduped = list(unique_map.values())
+    deduped.sort(key=lambda x: x.get("final_score", 0), reverse=True)
+    return deduped
+
+
+def render_saree_cards(results: list[dict]):
+    deduped = _deduplicate_saree_results(results)
+    if not deduped:
         return
-    num_cols = min(4, max(1, len(results)))
+    num_cols = min(4, max(1, len(deduped)))
     cols = st.columns(num_cols)
-    for i, r in enumerate(results):
+    for i, r in enumerate(deduped):
         with cols[i % num_cols]:
             st.image(r["image_url"], use_column_width=True)
             st.markdown(f"**{r['name']}**")
@@ -234,7 +256,15 @@ if actual_input:
     captured_results = []
 
     def _capture(results):
-        captured_results.extend(results)
+        for item in _deduplicate_saree_results(results):
+            pid = _get_product_id(item)
+            existing_ids = [_get_product_id(x) for x in captured_results]
+            if pid not in existing_ids:
+                captured_results.append(item)
+            else:
+                idx = existing_ids.index(pid)
+                if item.get("final_score", 0) > captured_results[idx].get("final_score", 0):
+                    captured_results[idx] = item
 
     with st.chat_message("assistant"):
         with st.spinner("Consulting TailorTalk catalogue..."):
@@ -256,7 +286,7 @@ if actual_input:
                     max_price=intent["max_price"],
                     top_k=intent["top_k"],
                 )
-                captured_results.extend(fallback_results)
+                _capture(fallback_results)
                 if fallback_results:
                     clauses = []
                     if intent["color"]:
@@ -269,9 +299,9 @@ if actual_input:
                         clauses.append(f"price above ₹{int(intent['min_price']):,}")
                     desc = " (" + ", ".join(clauses) + ")" if clauses else ""
                     if st.session_state.current_image is not None:
-                        answer = f"Found {len(fallback_results)} visually matching sarees{desc} from our catalogue."
+                        answer = f"Found {len(captured_results)} visually matching sarees{desc} from our catalogue."
                     else:
-                        answer = f"Found {len(fallback_results)} authentic sarees{desc} from our catalogue."
+                        answer = f"Found {len(captured_results)} authentic sarees{desc} from our catalogue."
                 else:
                     answer = "No matching sarees found for those specific filters in our 1,070-item catalogue. Try broadening your criteria."
 
@@ -289,17 +319,19 @@ if actual_input:
                     max_price=intent["max_price"],
                     top_k=intent["top_k"],
                 )
-                captured_results.extend(auto_results)
+                _capture(auto_results)
 
         st.markdown(answer)
         if captured_results:
             render_saree_cards(captured_results)
 
     # 2. Append assistant message with its permanently attached results
+    final_unique_results = _deduplicate_saree_results(captured_results)
     st.session_state.display_messages.append(
-        {"role": "assistant", "content": answer, "results": captured_results if captured_results else None}
+        {"role": "assistant", "content": answer, "results": final_unique_results if final_unique_results else None}
     )
     st.session_state.chat_history.append(AIMessage(content=answer))
-    if captured_results:
-        st.session_state.last_results = captured_results
+    if final_unique_results:
+        st.session_state.last_results = final_unique_results
     st.rerun()
+

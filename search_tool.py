@@ -500,9 +500,18 @@ def search_similar_sarees(
 
             candidates.append(item_dict)
 
-    # Sort candidates by final_score descending
-    candidates.sort(key=lambda x: x["final_score"], reverse=True)
-    return candidates[:top_k]
+    # Deduplicate candidates using stable product identifier (product_link, image_url, or sku)
+    # preserving the item with the highest final_score when duplicates occur
+    unique_map = {}
+    for item in candidates:
+        pid = item.get("product_link") or item.get("image_url") or item.get("sku") or item.get("name")
+        if pid not in unique_map or item["final_score"] > unique_map[pid]["final_score"]:
+            unique_map[pid] = item
+
+    unique_candidates = list(unique_map.values())
+    unique_candidates.sort(key=lambda x: x["final_score"], reverse=True)
+    return unique_candidates[:top_k]
+
 
 
 def index_size() -> int:
