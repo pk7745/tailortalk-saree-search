@@ -154,28 +154,28 @@ def main():
             time.sleep(2)
             executor = build_agent_executor(img, _on_results)
             
-            # Retry up to 3 times on free-tier rate limit (429)
-            for attempt in range(3):
+            # Retry up to 5 times on free-tier rate limit (429 / ResourceExhausted)
+            for attempt in range(5):
                 try:
                     executor.invoke({"input": "find me similar sarees to this one", "chat_history": []})
                     break
                 except Exception as ex:
-                    if "429" in str(ex) and attempt < 2:
-                        time.sleep(25)
+                    if ("429" in str(ex) or "ResourceExhausted" in str(ex) or "Quota exceeded" in str(ex)) and attempt < 4:
+                        time.sleep(35)
                     else:
                         raise
             check("Agent calls the tool when asked for similar items", called["count"] >= 1)
 
             called["count"] = 0
-            time.sleep(2)
+            time.sleep(5)
             executor2 = build_agent_executor(img, _on_results)
-            for attempt in range(3):
+            for attempt in range(5):
                 try:
                     executor2.invoke({"input": "hi, how are you?", "chat_history": []})
                     break
                 except Exception as ex:
-                    if "429" in str(ex) and attempt < 2:
-                        time.sleep(25)
+                    if ("429" in str(ex) or "ResourceExhausted" in str(ex) or "Quota exceeded" in str(ex)) and attempt < 4:
+                        time.sleep(35)
                     else:
                         raise
             check("Agent does NOT call the tool for unrelated chit-chat", called["count"] == 0)
