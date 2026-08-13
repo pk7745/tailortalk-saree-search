@@ -46,18 +46,19 @@ FAILED_LOG = os.path.join(DATA_DIR, "failed_downloads.csv")
 CLIP_MODEL_NAME = "ViT-B-32"
 CLIP_PRETRAINED = "laion2b_s34b_b79k"
 
-# ---- Fusion weights --------------------------------------------------
-# Final vector = normalize( concat( CLIP_WEIGHT * norm(clip_emb),
-#                                    COLOR_WEIGHT * norm(color_hist) ) )
-# CLIP captures overall garment semantics + coarse pattern/texture.
-# The HSV color histogram captures precise colour-combination similarity,
-# which plain CLIP tends to under-weight for a single-category catalogue
-# like this one (every image IS a saree, so CLIP's dominant signal is
-# "saree-ness", not "which saree"). Tuned by manual A/B on ~15 query images
-# (see README > Search Quality).
-CLIP_WEIGHT = 0.7
-COLOR_WEIGHT = 0.3
+# ---- 3-Way Fusion weights (Whole Image + Color Histogram + Border/Pallu Crop) -
+# Final vector = normalize( concat( CLIP_WEIGHT * norm(clip_whole),
+#                                    COLOR_WEIGHT * norm(color_hist),
+#                                    BORDER_WEIGHT * norm(clip_border) ) )
+# 1. CLIP_WEIGHT: Captures overall garment silhouette & drapery (0.55).
+# 2. COLOR_WEIGHT: Captures exact multi-color HSV palette distribution (0.25).
+# 3. BORDER_WEIGHT: Captures fine-grained border & pallu weave motifs (0.20).
+CLIP_WEIGHT = 0.55
+COLOR_WEIGHT = 0.25
+BORDER_WEIGHT = 0.20
 COLOR_HIST_BINS = (8, 8, 8)  # H, S, V bins -> 512-dim histogram
+BORDER_BOTTOM_RATIO = 0.35
+BORDER_RIGHT_RATIO = 0.35
 
 # ---- Search ---------------------------------------------------------
 DEFAULT_TOP_K = 5
