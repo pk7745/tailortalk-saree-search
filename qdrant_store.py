@@ -112,12 +112,19 @@ def get_collection_info(client: QdrantClient, collection_name: str = config.QDRA
     """Retrieve summary information about the collection."""
     try:
         info = client.get_collection(collection_name=collection_name)
+        try:
+            p_count = client.count(collection_name=collection_name).count
+        except Exception:
+            p_count = getattr(info, "points_count", None)
         return {
             "status": info.status.value if hasattr(info.status, "value") else str(info.status),
-            "vectors_count": info.vectors_count,
-            "points_count": info.points_count,
+            "vectors_count": getattr(info, "vectors_count", p_count),
+            "points_count": p_count,
         }
     except Exception as e:
+        return {"error": str(e)}
+
+
         return {"error": str(e)}
 
 
@@ -225,19 +232,24 @@ def search_sarees(
     query_list = query_vector.flatten().tolist()
     q_filter = build_price_filter(min_price, max_price)
 
-    search_result = client.search(
-        collection_name=collection_name,
-        query_vector=query_list,
-        query_filter=q_filter,
-        limit=limit,
-        with_payload=True,
-    )
+    try:
+        search_result = client.search(
+            collection_name=collection_name,
+            query_vector=query_list,
+            query_filter=q_filter,
+            limit=limit,
+            with_payload=True,
+        )
+    except Exception as ex:
+        print(f"Warning: Qdrant search request failed ({ex}). Returning empty list for fallback.")
+        return []
 
-    results = []
+    hits = []
     for hit in search_result:
-        results.append({
-            "point_id": hit.id,
+        hits.append({
+            "id": hit.id,
             "score": float(hit.score),
-            "payload": hit.payload,
+            "payload": hit.payload or {},
         })
-    return results
+
+    return hits

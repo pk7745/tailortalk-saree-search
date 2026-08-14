@@ -53,12 +53,13 @@ def main():
     )
     verify_uniqueness(res_c, "silk sarees under 5000")
 
-    # Test E: Verify Qdrant still has exactly 1,070 points
-    print("\n--- Test E: Qdrant Collection Point Count ---")
-    client = qdrant_store.get_qdrant_client()
-    info = qdrant_store.get_collection_info(client, config.QDRANT_COLLECTION_NAME)
-    print(f"   Qdrant collection '{config.QDRANT_COLLECTION_NAME}' points count: {info.get('points_count')}")
-    assert info.get("points_count") == 1070, f"Expected 1070 points in Qdrant, got {info.get('points_count')}"
+    # Test E: Verify Collection Point Count
+    print("\n--- Test E: Index Collection Point Count ---")
+    from search_tool import index_size
+    cnt = index_size()
+    print(f"   Total indexed sarees count: {cnt}")
+    assert cnt == 1070, f"Expected 1070 indexed sarees, got {cnt}"
+
 
     print("\n" + "=" * 80)
     print("ALL DUPLICATE FIX VERIFICATION AUDITS PASSED 100%!")
