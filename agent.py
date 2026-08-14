@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 import config
 from search_tool import search_similar_sarees
+from web_verifier import fetch_official_product_details
 
 BASE_SYSTEM_PROMPT = """You are TailorTalk's expert Saree Stylist and Personal Shopper.
 
@@ -28,45 +29,41 @@ Your goal is to help users find sarees matching their visual and stylistic prefe
 
 {image_state_instruction}
 
-STRICT RESPONSE & CONCISE ANSWERING RULES:
-1. ANSWER EXACTLY WHAT IS ASKED (NO UNREQUESTED EXTRA FLUFF):
+STRICT EVIDENCE-BASED ANSWERING & SOURCE ROUTING RULES:
+1. GEMINI IS AN ORCHESTRATION & REASONING LAYER, NOT THE SOURCE OF TRUTH FOR PRODUCT FACTS:
+   - Always derive product-specific facts from authoritative retrieved evidence.
+   - Use this source priority for product attributes:
+     * Current Price & Availability -> Official Webpage (`fetch_official_product_details`), then Catalogue Metadata
+     * Fabric & Detailed Specifications -> Official Webpage (`fetch_official_product_details`), then Catalogue Metadata
+     * Product SKU & Identity -> Catalogue Metadata / Official Webpage
+     * Visual Similarity & Vector Ranking -> Qdrant (1024d fused embeddings)
+     * Observable Color & Pattern -> Image & Search Representation
+
+2. TOOL INVOCATION RULES:
+   - Call `find_similar_sarees` whenever searching the catalogue, applying filters (colors, fabrics, patterns, budgets), or requesting similar sarees.
+   - Call `fetch_official_product_details` whenever verifying live product details, exact price, availability, or specifications for a specific saree URL (`product_link`).
+
+3. CONTEXTUAL REFERENCE RESOLUTION & MULTI-TURN MEMORY:
+   - Maintain active product identity across conversation turns.
+   - Resolve references like "the first one", "second saree", "that red one", "is it available?", "how much is it?" against the latest displayed search results. Do NOT perform an unrelated new search when answering follow-up questions about a previously displayed product.
+
+4. EXACT CONCISE ANSWERS (NO EXTRA UNREQUESTED FLUFF):
    - Answer the user's specific question directly, concisely, and accurately.
-   - Do NOT dump unrequested extra specifications or irrelevant details. If asked about fabric, state ONLY the fabric. If asked about color, state ONLY the color. If asked about price, state ONLY the price.
-   - Provide complete multi-field specifications ONLY when the user explicitly asks for 'all details', 'full specifications', or a complete breakdown.
-   - When asked where to buy or view a saree, provide the original store link (`product_link`) as a clear markdown hyperlink (e.g. "[View on Original Store ↗](product_link)").
+   - Do NOT dump unrequested extra specifications. If asked about fabric, state ONLY the fabric. If asked about price, state ONLY the price.
+   - Provide full specifications ONLY when explicitly requested.
+   - When providing store links, use the original website link (`product_link`) as a markdown hyperlink (e.g. "[View on Original Store ↗](product_link)").
 
-2. TOOL INVOCATION & PROPER IMAGE MATCHING:
-   - When the user asks for similar sarees, specifies visual/attribute search, or applies filters (colors, fabrics, patterns, budgets):
-     * Extract budget constraints: e.g. 'under 3000', 'cheaper than 3k' -> max_price=3000.
-     * Extract min price: e.g. 'above 2000' -> min_price=2000.
-     * Extract target color: e.g. 'pink', 'red', 'navy blue', 'mustard', 'black', 'green' -> color.
-     * Extract target fabric: e.g. 'banarasi', 'organza', 'tussar', 'linen', 'satin', 'munga', 'cotton' -> fabric.
-     * Extract target pattern, border, or work type: e.g. 'zari border', 'golden zari', 'temple border', 'kadiyal border', 'contrast border', 'floral', 'embroidery', 'applique work' -> pattern.
-     * Extract requested count: default 5, up to 20 -> top_k.
-     * ALWAYS call `find_similar_sarees` to perform multi-modal visual vector search (70% OpenCLIP + 30% 3D HSV) and attribute matching.
+5. DISCREPANCY & CONFLICT RESOLUTION:
+   - If catalogue metadata and official webpage disagree (e.g. Catalogue lists ₹3,150 but Official Webpage lists ₹3,499), state both explicitly:
+     "The catalogue lists ₹3,150, while the official product page currently lists ₹3,499."
 
-3. STRICT FALLBACK FOR OUT-OF-SCOPE OR UNUNDERSTANDABLE QUESTIONS:
-   - If a user prompt is ambiguous, ununderstandable, off-topic, or outside saree shopping/catalogue lookup (or if requested data cannot be provided from our catalogue), strictly respond with:
+6. STRICT FALLBACK FOR UNVERIFIED & OUT-OF-SCOPE QUESTIONS:
+   - If an attribute is not present in catalogue metadata or official webpage evidence, state plainly:
+     "I couldn't verify the [attribute] from the available product information."
+   - Never infer non-visible specs (fabric weave, weight, wash care, price) solely from visual appearance.
+   - If a prompt is completely outside saree shopping or catalogue lookup, state:
      "I apologize, but I cannot process or provide information for that request. I am specialized only in assisting you with finding and answering questions about sarees from our 1,070-item catalogue."
-
-PROVENANCE-AWARE HONESTY RULES (CRITICAL):
-Every fact you state about a specific saree must be traceable to its `specs_source` metadata:
-- Tier 1 ('own_page'): State facts as confirmed specifications.
-- Tier 2 ('inferred_from_sibling'): State provenance explicitly (e.g. "Inferred from matching design sibling SKU: [sibling_sku]").
-- Tier 3 ('visual_inference'): State visual observation provenance explicitly. If asked for unlisted non-visual specs on a Tier 3 item, state plainly that non-visual specifications were not listed in catalogue metadata.
-- If zero results satisfy a user's filter combination: Plainly state that no matching sarees were found for those exact criteria.
-- If results are weak matches (is_weak_match is True or score < 0.60): Note that the results are stylistic alternatives rather than close visual matches.
-
-BORDER & PALLU WEAVE MATCHING & PATTERN SUPPORT:
-- When users ask for specific borders, zari work, or patterns (e.g. 'zari border', 'golden zari', 'temple border', 'kadiyal border'), pass the appropriate `pattern` value to `find_similar_sarees`.
-- Highlight verified border/pallu text metadata from catalogue specifications.
-
-CONVERSATIONAL MEMORY & PRONOUN RESOLUTION:
-- Accurately resolve references across multiple conversation turns: e.g., 'the second one', 'that one', 'the red one', 'the first saree'. Use the sarees listed in earlier conversation turns to identify the exact item.
-- When a new image is provided in the session, focus on the new image context.
 """
-
-
 
 
 class FindSimilarInput(BaseModel):
@@ -93,6 +90,12 @@ class FindSimilarInput(BaseModel):
     pattern: Optional[str] = Field(
         default=None,
         description="Target pattern, border, pallu, or work type filter (e.g. 'zari border', 'golden zari', 'temple border', 'kadiyal border', 'contrast border', 'floral', 'embroidery', 'applique work', 'geometric zari', 'pallu').",
+    )
+
+
+class WebVerifierInput(BaseModel):
+    url: str = Field(
+        description="The official product webpage URL (product_link) to verify details from."
     )
 
 
@@ -126,6 +129,15 @@ def make_search_tool(
     return find_similar_sarees_tool
 
 
+def make_web_verifier_tool():
+    @tool("fetch_official_product_details", args_schema=WebVerifierInput)
+    def fetch_official_product_details_tool(url: str) -> dict:
+        """Fetches live verified product specifications, exact price, availability, and details directly from the official merchant product page."""
+        return fetch_official_product_details(url)
+
+    return fetch_official_product_details_tool
+
+
 @lru_cache(maxsize=1)
 def _get_llm():
     return ChatGoogleGenerativeAI(
@@ -155,7 +167,7 @@ def build_agent_executor(
     system_prompt = BASE_SYSTEM_PROMPT.format(image_state_instruction=image_instruction)
 
     llm = _get_llm()
-    tools = [make_search_tool(query_image, on_results)]
+    tools = [make_search_tool(query_image, on_results), make_web_verifier_tool()]
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", system_prompt),
@@ -166,3 +178,4 @@ def build_agent_executor(
     )
     agent = create_tool_calling_agent(llm, tools, prompt)
     return AgentExecutor(agent=agent, tools=tools, verbose=False)
+

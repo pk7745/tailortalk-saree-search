@@ -230,6 +230,10 @@ def render_saree_cards(results: list[dict]):
             if r.get("product_link"):
                 st.markdown(f"[View on Store ↗]({r['product_link']})")
 
+            if r.get("specs_source") == "own_page" or r.get("web_verified"):
+                st.caption("✓ Verified from official page")
+
+
 
 # ---------------------------------------------------------------------
 # Persistent Chat History Render (with stored product cards per turn)
