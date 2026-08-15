@@ -21,9 +21,11 @@ import config
 ALLOWED_DOMAINS = [
     "houseofbyrappa.com",
     "byrappa.com",
+    "byrappasilks.in",
     "tailortalk.app",
     "streamlit.app",
 ]
+
 
 BLOCKED_IP_NETWORKS = [
     ipaddress.ip_network("127.0.0.0/8"),

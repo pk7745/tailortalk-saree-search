@@ -1,5 +1,4 @@
 import os
-
 import streamlit as st
 from langchain_core.messages import AIMessage, HumanMessage
 from PIL import Image
@@ -9,66 +8,136 @@ from agent import build_agent_executor
 from search_tool import index_size, load_image_from_bytes, load_image_from_url
 
 st.set_page_config(
-    page_title="TailorTalk - Saree Visual & Attribute Search",
+    page_title="TailorTalk — AI-Powered Saree Discovery",
     page_icon="🥻",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Custom High-End Styling
+# ---------------------------------------------------------------------
+# Custom Premium Fashion-Oriented CSS Design System
+# ---------------------------------------------------------------------
 st.markdown(
     """
 <style>
-    .main-header {
-        font-family: 'Segoe UI', sans-serif;
-        font-weight: 700;
-        color: #1E1E2F;
-        margin-bottom: 0px;
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        color: #2D3748;
     }
+    
+    .stApp {
+        background-color: #FAF9F6;
+    }
+
+    .brand-title {
+        font-family: 'Playfair Display', Georgia, serif;
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: #1A202C;
+        margin-bottom: 2px;
+        letter-spacing: -0.5px;
+    }
+
+    .brand-subtitle {
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: #8B0032;
+        margin-bottom: 6px;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+    }
+
+    .brand-desc {
+        font-size: 0.95rem;
+        color: #64748B;
+        margin-bottom: 24px;
+    }
+
+    .welcome-card {
+        background: linear-gradient(135deg, #FFF8FA 0%, #F5F7FA 100%);
+        border: 1px solid #F1E2E7;
+        border-radius: 16px;
+        padding: 32px 24px;
+        text-align: center;
+        margin-bottom: 24px;
+        box-shadow: 0 2px 10px rgba(139,0,50,0.03);
+    }
+
+    .welcome-title {
+        font-family: 'Playfair Display', Georgia, serif;
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #1A202C;
+        margin-bottom: 8px;
+    }
+
+    .welcome-text {
+        font-size: 0.95rem;
+        color: #64748B;
+        max-width: 560px;
+        margin: 0 auto 20px auto;
+        line-height: 1.5;
+    }
+
     .saree-card {
         background-color: #FFFFFF;
-        border-radius: 12px;
-        padding: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-        border: 1px solid #EDEDF2;
-        margin-bottom: 16px;
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        border-radius: 14px;
+        padding: 14px;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        margin-bottom: 18px;
+        transition: all 0.2s ease-in-out;
     }
+
     .saree-card:hover {
         transform: translateY(-3px);
-        box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+        border-color: #CBD5E1;
     }
-    .tag-badge {
-        display: inline-block;
-        background-color: #F0F2F6;
-        color: #31333F;
-        font-size: 11px;
+
+    .verified-badge {
+        display: inline-flex;
+        align-items: center;
+        font-size: 0.75rem;
         font-weight: 600;
+        color: #059669;
+        background-color: #ECFDF5;
+        border: 1px solid #A7F3D0;
         padding: 2px 8px;
         border-radius: 6px;
-        margin-right: 4px;
-        margin-bottom: 4px;
+        margin-top: 6px;
     }
-    .price-badge {
-        font-size: 16px;
+
+    .price-text {
+        font-size: 1.15rem;
         font-weight: 700;
-        color: #D9383A;
+        color: #8B0032;
     }
-    .score-badge {
-        font-size: 11px;
+
+    .match-score {
+        font-size: 0.75rem;
         font-weight: 700;
-        color: #0E7090;
-        background-color: #E0F2FE;
-        padding: 2px 8px;
+        color: #0284C7;
+        background-color: #F0F9FF;
+        border: 1px solid #BAE6FD;
+        padding: 2px 6px;
         border-radius: 6px;
+    }
+
+    /* Style Streamlit Chat Messages */
+    .stChatMessage {
+        border-radius: 12px;
+        padding: 12px 16px;
+        margin-bottom: 12px;
     }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-# Pull the free Gemini key from Streamlit secrets if present (deployed) and
-# expose it as an env var for langchain_google_genai to pick up.
+# Pull API key from Streamlit secrets if running deployed
 if "GOOGLE_API_KEY" in st.secrets:
     os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
 
@@ -87,30 +156,38 @@ def _warmup_backend_engine():
 
 _warmup_backend_engine()
 
-st.title("🥻 TailorTalk Saree Search")
-st.caption(
-    "Search across **1,070 authentic sarees** with multi-modal visual similarity, "
-    "fine-grained color & fabric filtering, and natural shopping consultation."
-)
-
 # ---------------------------------------------------------------------
-# Session state
+# Session State Initialization
 # ---------------------------------------------------------------------
 if "display_messages" not in st.session_state:
-    st.session_state.display_messages = []  # list[dict] with role, content, results
+    st.session_state.display_messages = []
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []  # list[HumanMessage | AIMessage] for LangChain
+    st.session_state.chat_history = []
 if "current_image" not in st.session_state:
     st.session_state.current_image = None
 if "last_results" not in st.session_state:
     st.session_state.last_results = []
 
 # ---------------------------------------------------------------------
-# Sidebar: Image input + Catalogue breakdown
+# Header & Branding Section
+# ---------------------------------------------------------------------
+st.markdown(
+    """
+<div style="text-align: center; padding: 10px 0 20px 0;">
+    <div class="brand-title">TailorTalk</div>
+    <div class="brand-subtitle">AI-Powered Saree Discovery</div>
+    <div class="brand-desc">Find visually similar sarees and get accurate product information using text or images.</div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+# ---------------------------------------------------------------------
+# Sidebar: Image input + Search Guide
 # ---------------------------------------------------------------------
 with st.sidebar:
-    st.header("📸 Query Image")
-    uploaded = st.file_uploader("Upload a saree photo", type=["jpg", "jpeg", "png", "webp"])
+    st.markdown("### 📸 Visual Search")
+    uploaded = st.file_uploader("Upload a saree image to find visually similar products", type=["jpg", "jpeg", "png", "webp"])
     url_input = st.text_input("...or paste an image URL")
 
     if uploaded is not None:
@@ -118,65 +195,65 @@ with st.sidebar:
     elif url_input:
         try:
             st.session_state.current_image = load_image_from_url(url_input)
-        except Exception as e:  # noqa: BLE001
-            st.error(f"Couldn't load that URL: {e}")
+        except Exception as e:
+            st.error(f"Couldn't load image from URL: {e}")
 
     if st.session_state.current_image is not None:
-        st.image(st.session_state.current_image, caption="Active Query Image", use_column_width=True)
-        if st.button("🗑️ Clear Query Image"):
+        st.image(st.session_state.current_image, caption="Active Reference Image", use_column_width=True)
+        if st.button("🗑️ Clear Reference Image", use_container_width=True):
             st.session_state.current_image = None
             st.session_state.last_results = []
             st.rerun()
 
     st.divider()
-    st.subheader("📊 Catalogue Insights")
+
+    st.markdown("### 💡 How to Search")
+    st.markdown(
+        """
+        - **Text Search**: Ask about colours, fabrics, designs, prices, borders, or pallu.
+        - **Visual Search**: Upload a photo to find visually matching sarees.
+        - **Combined Search**: Upload an image and add text filters (e.g. *"under ₹5,000"*).
+        - **Live Verification**: Ask about price or availability to fetch live merchant webpage evidence.
+        """
+    )
+
+    st.divider()
+
     try:
         total = index_size()
-        st.metric("Total Indexed Sarees", f"{total:,}")
+        st.caption(f"**Verified Catalogue Size**: {total:,} Sarees")
+        st.caption("**Vector Engine**: Qdrant (1024d Fused Embedding)")
     except Exception:
-        st.warning("Index not found yet. Run ingest pipeline locally.")
-
-    with st.expander("🧵 Available Fabrics", expanded=False):
-        st.markdown(
-            "- **Banarasi / Pashmina**\n"
-            "- **Pure Organza & Tissue**\n"
-            "- **Ajrakh Handblock Prints**\n"
-            "- **Linen Silk & Cotton**\n"
-            "- **Satin & Munga Crape**\n"
-            "- **Tussar & Mysore Silk**"
-        )
-
-    with st.expander("🎨 Popular Color Palettes", expanded=False):
-        st.markdown(
-            "- **Pinks**: Rani, Baby, Peach, Dusty\n"
-            "- **Blues**: Navy, Sky, Royal Blue\n"
-            "- **Greens**: Mint, Bottle, Pista Green\n"
-            "- **Yellows & Gold**: Mustard, Lemon\n"
-            "- **Reds & Maroons**: Crimson, Wine\n"
-            "- **Neutrals**: White, Cream, Black, Silver"
-        )
+        pass
 
 # ---------------------------------------------------------------------
-# Quick suggestions
+# Welcome Hero (Displayed when chat is empty)
 # ---------------------------------------------------------------------
-st.markdown("**Quick Prompts:**")
-col1, col2, col3, col4 = st.columns(4)
 quick_prompt = None
-with col1:
-    if st.button("🔍 Find Similar Sarees", use_container_width=True):
-        quick_prompt = "Find similar sarees to this one"
-with col2:
-    if st.button("🌸 Show Only Pink Sarees", use_container_width=True):
-        quick_prompt = "Show me only pink colour sarees"
-with col3:
-    if st.button("🧵 Banarasi under ₹4,000", use_container_width=True):
-        quick_prompt = "Find Banarasi sarees under ₹4,000"
-with col4:
-    if st.button("✨ Show 8 Matches", use_container_width=True):
-        quick_prompt = "Show me 8 similar sarees"
 
-# ---------------------------------------------------------------------
-# Helper function to render a product card grid
+if not st.session_state.display_messages:
+    st.markdown(
+        """
+    <div class="welcome-card">
+        <div class="welcome-title">Discover your perfect saree</div>
+        <div class="welcome-text">Search by description or upload an image to find visually similar sarees from our verified catalogue.</div>
+    </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("<p style='text-align:center; font-weight:600; color:#64748B; font-size:0.88rem; margin-bottom:12px;'>TRY EXAMPLE SEARCHES:</p>", unsafe_allow_html=True)
+    e_col1, e_col2, e_col3 = st.columns(3)
+    with e_col1:
+        if st.button("🧵 Show silk sarees under ₹5,000", use_container_width=True):
+            quick_prompt = "Show silk sarees under ₹5,000"
+    with e_col2:
+        if st.button("✨ Find red sarees with zari border", use_container_width=True):
+            quick_prompt = "Find red sarees with zari border"
+    with e_col3:
+        if st.button("🌸 Find pink banarasi sarees", use_container_width=True):
+            quick_prompt = "Find pink banarasi sarees"
+
 # ---------------------------------------------------------------------
 # Helper functions to deduplicate and render product card grid
 # ---------------------------------------------------------------------
@@ -203,6 +280,9 @@ def render_saree_cards(results: list[dict]):
     deduped = _deduplicate_saree_results(results)
     if not deduped:
         return
+
+    st.markdown(f"#### Similar Sarees <span style='font-size:0.85rem; font-weight:500; color:#64748B;'>({len(deduped)} matches found)</span>", unsafe_allow_html=True)
+
     num_cols = min(4, max(1, len(deduped)))
     cols = st.columns(num_cols)
     for i, r in enumerate(deduped):
@@ -223,20 +303,19 @@ def render_saree_cards(results: list[dict]):
 
             sim_score = r.get("score", 0.0)
             if sim_score > 0 and sim_score <= 1.0 and st.session_state.current_image is not None:
-                st.markdown(f"**₹{r['price']}** · 🎯 `{sim_score:.2f} match`")
+                st.markdown(f"<span class='price-text'>₹{r['price']}</span> · <span class='match-score'>🎯 {sim_score:.2f} match</span>", unsafe_allow_html=True)
             else:
-                st.markdown(f"**₹{r['price']}**")
+                st.markdown(f"<span class='price-text'>₹{r['price']}</span>", unsafe_allow_html=True)
 
             if r.get("product_link"):
-                st.markdown(f"[View on Store ↗]({r['product_link']})")
+                st.markdown(f"[View Product ↗]({r['product_link']})")
 
             if r.get("specs_source") == "own_page" or r.get("web_verified"):
-                st.caption("✓ Verified from official page")
-
+                st.markdown("<div class='verified-badge'>✓ Verified from official product page</div>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------
-# Persistent Chat History Render (with stored product cards per turn)
+# Persistent Chat History Render
 # ---------------------------------------------------------------------
 for msg in st.session_state.display_messages:
     with st.chat_message(msg["role"]):
@@ -247,7 +326,7 @@ for msg in st.session_state.display_messages:
 # ---------------------------------------------------------------------
 # Chat input
 # ---------------------------------------------------------------------
-user_input = st.chat_input("Ask about colors, fabrics, patterns, prices, or finding matches...")
+user_input = st.chat_input("Ask about sarees, colours, fabrics, designs, prices, borders, pallu...")
 actual_input = quick_prompt or user_input
 
 if actual_input:
@@ -273,12 +352,14 @@ if actual_input:
     with st.chat_message("assistant"):
         with st.spinner("Consulting TailorTalk catalogue..."):
             try:
-                executor = build_agent_executor(st.session_state.current_image, _capture)
+                executor = build_agent_executor(
+                    st.session_state.current_image, _capture, st.session_state.last_results
+                )
                 response = executor.invoke(
                     {"input": actual_input, "chat_history": st.session_state.chat_history[:-1]}
                 )
                 answer = response["output"]
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 from search_tool import parse_query_intent, search_similar_sarees
 
                 intent = parse_query_intent(actual_input)
@@ -338,4 +419,3 @@ if actual_input:
     if final_unique_results:
         st.session_state.last_results = final_unique_results
     st.rerun()
-

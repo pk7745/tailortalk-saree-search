@@ -150,6 +150,7 @@ def _get_llm():
 def build_agent_executor(
     query_image: Optional[Image.Image],
     on_results: Optional[Callable[[list[dict]], None]] = None,
+    last_results: Optional[list[dict]] = None,
 ) -> AgentExecutor:
     if query_image is not None:
         image_instruction = (
@@ -164,7 +165,21 @@ def build_agent_executor(
             "If they specify text filters (e.g. 'find pink banarasi sarees under 3000'), search the catalogue by calling `find_similar_sarees`."
         )
 
-    system_prompt = BASE_SYSTEM_PROMPT.format(image_state_instruction=image_instruction)
+    if last_results:
+        context_lines = [
+            "\nACTIVE DISPLAYED SAREE CONTEXT (STRICT NUMERIC MAPPING FOR REFERENCE RESOLUTION):"
+        ]
+        for idx, item in enumerate(last_results, 1):
+            context_lines.append(
+                f"Product #{idx}: Name='{item.get('name')}', SKU='{item.get('sku')}', "
+                f"Price='₹{item.get('price')}', Color='{item.get('color')}', Fabric='{item.get('fabric')}', "
+                f"Pattern='{item.get('pattern')}', URL='{item.get('product_link')}', Source='{item.get('specs_source')}'"
+            )
+        active_context_instruction = "\n".join(context_lines)
+    else:
+        active_context_instruction = "\nACTIVE DISPLAYED SAREE CONTEXT: No products are currently displayed from a previous turn."
+
+    system_prompt = BASE_SYSTEM_PROMPT.format(image_state_instruction=image_instruction) + "\n" + active_context_instruction
 
     llm = _get_llm()
     tools = [make_search_tool(query_image, on_results), make_web_verifier_tool()]
@@ -178,4 +193,5 @@ def build_agent_executor(
     )
     agent = create_tool_calling_agent(llm, tools, prompt)
     return AgentExecutor(agent=agent, tools=tools, verbose=False)
+
 
